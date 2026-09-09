@@ -1,0 +1,20 @@
+# Vercel hosts the EstateFlow API only; the marketing site + tenant
+# portal stay on Netlify. Keep the deploy slim and avoid publishing
+# app source, local tooling, or secrets.
+web/
+src/
+assets/
+dist/
+functions/
+scripts/
+.expo/
+.vs/
+.vscode/
+.git/
+node_modules/
+*.md
+*.bat
+serviceAccount.json
+.env
+.env.*
+!.env.netlify.example

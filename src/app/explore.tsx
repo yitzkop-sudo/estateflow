@@ -1,6 +1,7 @@
 import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ExternalLink } from '@/components/external-link';
@@ -12,6 +13,7 @@ import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function TabTwoScreen() {
+  const router = useRouter();
   const safeAreaInsets = useSafeAreaInsets();
   const insets = {
     ...safeAreaInsets,
@@ -38,6 +40,16 @@ export default function TabTwoScreen() {
       contentInset={insets}
       contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
       <ThemedView style={styles.container}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={[styles.backButton, { backgroundColor: '#1E293B' }]}
+        >
+          <SymbolView
+            tintColor="#FFFFFF"
+            name={{ ios: 'chevron.left', android: 'arrow_back', web: 'chevron.left' } as any}
+            size={24}
+          />
+        </TouchableOpacity>
         <ThemedView style={styles.titleContainer}>
           <ThemedText type="subtitle">Explore</ThemedText>
           <ThemedText style={styles.centerText} themeColor="textSecondary">
@@ -136,6 +148,14 @@ const styles = StyleSheet.create({
   container: {
     maxWidth: MaxContentWidth,
     flexGrow: 1,
+  },
+  backButton: {
+    position: 'absolute',
+    top: Spacing.six,
+    left: Spacing.four,
+    padding: Spacing.two,
+    borderRadius: Spacing.two,
+    zIndex: 10,
   },
   titleContainer: {
     gap: Spacing.three,

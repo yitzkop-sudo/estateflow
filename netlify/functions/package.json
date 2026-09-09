@@ -1,0 +1,15 @@
+{
+  "name": "estateflow-netlify-functions",
+  "version": "1.0.0",
+  "private": true,
+  "description": "EstateFlow API (Stripe + UtilityAPI) hosted as a Netlify Function so Firebase stays on the free Spark plan (no Blaze/card).",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "firebase-admin": "^12.6.0",
+    "serverless-http": "^3.2.0",
+    "stripe": "^17.4.0"
+  }
+}

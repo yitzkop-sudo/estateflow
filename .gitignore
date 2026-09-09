@@ -31,7 +31,9 @@ yarn-error.*
 *.pem
 
 # local env files
-.env*.local
+.env
+.env.*
+!.env.netlify.example
 
 # typescript
 *.tsbuildinfo
@@ -41,3 +43,23 @@ example
 # generated native folders
 /ios
 /android
+
+# stripe secrets
+functions/.env
+firebase-debug.log
+ui-debug.log
+
+# Firebase service account (never commit — full admin access to your project)
+serviceAccount.json
+**/serviceAccount.json
+FIREBASE_SERVICE_ACCOUNT.json
+
+# Netlify (card-free API hosting)
+netlify/functions/node_modules/
+
+# Local Netlify folder
+.netlify
+
+# Local tooling (never commit)
+.continue/
+.vs/

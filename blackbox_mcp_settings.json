@@ -1,0 +1,36 @@
+{
+  "mcpServers": {
+    "github.com/transloadit/node-sdk": {
+      "name": "github.com/transloadit/node-sdk",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@transloadit/mcp-server"
+      ],
+      "env": {
+        "TRANSLOADIT_KEY": "dce7e3ccbb54a09997e3467c93dc1ad0",
+        "TRANSLOADIT_SECRET": "d9c0f7b62e8e724eb584bbbc41d31d66045bbdd3"
+      }
+    },
+    "github.com/microsoft/playwright-mcp": {
+      "name": "github.com/microsoft/playwright-mcp",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest"
+      ]
+    },
+    "github.com/modelcontextprotocol/servers/tree/main/src/filesystem": {
+      "name": "github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "c:/Users/Ez/EstateFlow"
+      ]
+    }
+  }
+}

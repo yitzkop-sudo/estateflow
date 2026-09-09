@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Properties (landlord-only) ────────────────────────
+    match /properties/{propertyId} {
+      allow read, write: if request.auth != null && request.auth.uid == resource.data.ownerId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.ownerId;
+    }
+
+    // ─── Tenants ───────────────────────────────────────────
+    match /tenants/{tenantId} {
+      // Landlord: full CRUD on own records
+      allow read, write: if request.auth != null && request.auth.uid == resource.data.ownerId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.ownerId;
+      // Tenant portal: read any tenant doc (for name/email matching)
+      allow read: if request.auth != null;
+      // Tenant portal: only allow updating the tenantEmail field
+      allow update: if request.auth != null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tenantEmail']);
+    }
+
+    // ─── Maintenance (landlord's own records) ──────────────
+    match /maintenance/{docId} {
+      allow read: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+    }
+
+    // ─── Maintenance Requests (tenant-submitted) ───────────
+    match /maintenance_requests/{docId} {
+      // Landlord: read requests on their properties, update status, delete
+      allow read, update, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      // Tenant: create requests and read own
+      allow create: if request.auth != null && request.resource.data.tenantId == request.auth.uid;
+      allow read: if request.auth != null && resource.data.tenantId == request.auth.uid;
+    }
+
+    // ─── Payments ──────────────────────────────────────────
+    match /payments/{uid}/{document=**} {
+      // Landlord: full access to own payment records.
+      // NOTE: "paid" records are written by the stripeWebhook Cloud Function
+      // (Admin SDK bypasses these rules) only after Stripe confirms a real
+      // charge. Tenants record payments through checkout, never directly.
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ─── Notifications ─────────────────────────────────────
+    match /notifications/{uid}/items/{itemId} {
+      // Landlord: read own notifications, mark them read (update)
+      allow read, update, delete: if request.auth != null && request.auth.uid == uid;
+      // Tenant portal: create notification for landlord
+      allow create: if request.auth != null;
+    }
+
+    // ─── Snapshots (monthly data) ──────────────────────────
+    match /snapshots/{uid}/months/{month} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ─── Users ─────────────────────────────────────────────
+    match /users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}

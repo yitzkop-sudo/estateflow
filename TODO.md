@@ -1,0 +1,5 @@
+- [ ] Install `@transloadit/mcp-server` in `c:/Users/Ez/EstateFlow` (npm)
+- [ ] Create `c:/Users/Ez/EstateFlow/blackbox_mcp_settings.json` using server name `github.com/transloadit/node-sdk`
+- [ ] Verify how to launch the MCP server from the installed package (stdio/http command)
+- [ ] Demonstrate capabilities by invoking at least one MCP tool from the configured server
+- [ ] Document what tool was run and output observed

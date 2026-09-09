@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EstateFlow - Property Management</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+  <!-- LOGIN PAGE -->
+  <div id="page-login" class="page active">
+    <div class="login-container">
+      <div class="login-header">
+        <div class="logo-wrap">
+          <i class="fas fa-building"></i>
+        </div>
+        <h1 class="logo-text">Estate<span class="accent">Flow</span></h1>
+        <p class="tagline">Property Management</p>
+        <p class="hero-text">Pay your rent and submit maintenance requests online.</p>
+      </div>
+
+      <div class="card login-card">
+        <div class="tabs">
+          <button class="tab active" onclick="switchAuthTab('login')">Sign In</button>
+          <button class="tab" onclick="switchAuthTab('signup')">Sign Up</button>
+        </div>
+
+        <div id="auth-login" class="auth-form active">
+          <div class="input-group">
+            <input type="email" id="login-email" placeholder="Email address" autocomplete="email">
+            <i class="fas fa-envelope input-icon"></i>
+          </div>
+          <div class="input-group">
+            <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
+            <i class="fas fa-lock input-icon"></i>
+            <button class="eye-btn" onclick="togglePassword('login-password', this)">
+              <i class="fas fa-eye"></i>
+            </button>
+          </div>
+          <button class="forgot-btn" onclick="resetPassword()">Forgot password?</button>
+          <div id="login-error" class="error-text"></div>
+          <button class="btn primary" onclick="handleLogin()" id="login-btn">
+            <span>Sign In</span>
+          </button>
+        </div>
+
+        <div id="auth-signup" class="auth-form">
+          <div class="input-group">
+            <input type="text" id="signup-name" placeholder="Full name" autocomplete="name">
+            <i class="fas fa-user input-icon"></i>
+          </div>
+          <div class="input-group">
+            <input type="email" id="signup-email" placeholder="Email address" autocomplete="email">
+            <i class="fas fa-envelope input-icon"></i>
+          </div>
+          <div class="input-group">
+            <input type="password" id="signup-password" placeholder="Password" autocomplete="new-password">
+            <i class="fas fa-lock input-icon"></i>
+            <button class="eye-btn" onclick="togglePassword('signup-password', this)">
+              <i class="fas fa-eye"></i>
+            </button>
+          </div>
+          <div class="input-group">
+            <input type="password" id="signup-confirm" placeholder="Confirm password" autocomplete="new-password">
+            <i class="fas fa-lock input-icon"></i>
+          </div>
+          <div id="signup-error" class="error-text"></div>
+          <button class="btn primary" onclick="handleSignup()" id="signup-btn">
+            <span>Create Account</span>
+          </button>
+        </div>
+
+        <div class="divider"><span>OR</span></div>
+
+        <button class="btn google-btn" onclick="handleGoogleSignIn()">
+          <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" class="google-logo">
+          Continue with Google
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TENANT DASHBOARD -->
+  <div id="page-dashboard" class="page">
+    <nav class="topbar">
+      <div class="topbar-left">
+        <i class="fas fa-home topbar-icon"></i>
+        <span class="topbar-title">EstateFlow</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button class="btn-icon" onclick="handleLogout()">
+          <i class="fas fa-sign-out-alt"></i>
+        </button>
+      </div>
+    </nav>
+
+    <div class="container">
+      <div class="greeting">
+        <p class="greeting-line" id="greeting-text">Good morning,</p>
+        <h1 class="greeting-name" id="user-name">Tenant</h1>
+        <p class="greeting-sub">Your rental dashboard</p>
+      </div>
+
+      <!-- RENT STATUS CARD -->
+      <div class="card rent-card" id="rent-card">
+        <div class="rent-header">
+          <div class="rent-status-dot" id="rent-status-dot"></div>
+          <span class="rent-status-text" id="rent-status-text">Loading...</span>
+        </div>
+        <div class="rent-amount" id="rent-amount">$0</div>
+        <p class="rent-label">Monthly Rent</p>
+        <div class="rent-details">
+          <div class="rent-detail">
+            <i class="fas fa-home"></i>
+            <span id="rent-property">--</span>
+          </div>
+          <div class="rent-detail">
+            <i class="fas fa-calendar"></i>
+            <span id="rent-due-day">--</span>
+          </div>
+        </div>
+        <button class="btn primary pay-btn" id="pay-btn" onclick="openPayModal()">
+          <i class="fas fa-credit-card"></i>
+          <span>Pay Rent</span>
+        </button>
+        <div class="paid-banner" id="paid-banner" style="display:none;">
+          <i class="fas fa-check-circle"></i>
+          <span>Rent paid for this period</span>
+        </div>
+      </div>
+
+      <!-- NO TENANT CARD -->
+      <div class="card no-tenant-card" id="no-tenant-card" style="display:none;">
+        <i class="fas fa-exclamation-circle"></i>
+        <h3>No Property Assigned</h3>
+        <p>Contact your landlord or property manager to get assigned to a property</p>
+      </div>
+
+      <!-- ACCOUNT LINKING CARD -->
+      <div class="card" id="link-card" style="display:none;">
+        <div style="text-align:center;margin-bottom:16px;">
+          <div style="width:56px;height:56px;border-radius:16px;background:rgba(59,130,246,0.12);display:flex;align-items:center;justify-content:center;margin:0 auto;">
+            <i class="fas fa-link" style="font-size:24px;color:var(--accent);"></i>
+          </div>
+        </div>
+        <h3 style="text-align:center;margin-bottom:6px;">Link Your Account</h3>
+        <p style="color:var(--text-secondary);text-align:center;font-size:14px;margin-bottom:20px;">
+          Enter your name exactly as your landlord or property manager entered it
+        </p>
+        <div class="input-group">
+          <input type="text" id="link-name" placeholder="e.g. John Doe">
+          <i class="fas fa-user input-icon"></i>
+        </div>
+        <div id="link-error" class="error-text"></div>
+        <button class="btn primary" onclick="linkTenantAccount()" id="link-btn">
+          <span>Link Account</span>
+        </button>
+        <button class="btn secondary" style="margin-top:10px;" onclick="handleLogout()">Sign Out</button>
+      </div>
+
+      <!-- PORTAL LOCKED (landlord's plan doesn't include the portal) -->
+      <div class="card" id="locked-card" style="display:none;text-align:center;padding:28px 22px;">
+        <div class="locked-icon"><i class="fas fa-lock"></i></div>
+        <h3 style="color:#F1F5F9;font-size:18px;margin:10px 0 6px;">Portal not included</h3>
+        <p style="color:#94A3B8;font-size:13.5px;line-height:1.6;">
+          The landlord or property manager for this property isn't subscribed to the
+          <b style="color:#E2E8F0;">Professional</b> plan, which includes the tenant portal.
+          Ask them to upgrade on the EstateFlow website — meanwhile, contact them directly for payments and maintenance.
+        </p>
+      </div>
+
+      <!-- QUICK ACTIONS -->
+      <div class="quick-actions" id="quick-actions">
+        <button class="quick-action-btn" onclick="showPage('maintenance')">
+          <div class="quick-icon yellow">
+            <i class="fas fa-tools"></i>
+          </div>
+          <span>Maintenance</span>
+          <div class="badge" id="maintenance-badge" style="display:none;">0</div>
+        </button>
+        <button class="quick-action-btn" onclick="showPage('payments')">
+          <div class="quick-icon green">
+            <i class="fas fa-dollar-sign"></i>
+          </div>
+          <span>Payment History</span>
+        </button>
+      </div>
+
+      <!-- RECENT PAYMENTS -->
+      <div class="section-header" id="payments-header">
+        <h2>Recent Payments</h2>
+      </div>
+      <div class="card list-card" id="payments-list">
+        <p class="empty-text">Loading...</p>
+      </div>
+
+      <!-- MAINTENANCE REQUESTS -->
+      <div class="section-header" id="requests-header" style="margin-top: 4px;">
+        <h2>Maintenance Requests</h2>
+        <button class="link-btn" onclick="showPage('maintenance')">View all</button>
+      </div>
+      <div class="card list-card" id="requests-list">
+        <p class="empty-text">Loading...</p>
+      </div>
+
+      <div style="height: 20px;"></div>
+    </div>
+  </div>
+
+  <!-- MAINTENANCE PAGE -->
+  <div id="page-maintenance" class="page">
+    <nav class="topbar">
+      <button class="btn-icon" onclick="showPage('dashboard')">
+        <i class="fas fa-arrow-left"></i>
+      </button>
+      <span class="topbar-title">Maintenance</span>
+      <div style="width:40px;"></div>
+    </nav>
+
+    <div class="container">
+      <button class="btn primary full-width" onclick="openMaintenanceModal()" style="margin-top: 4px;">
+        <i class="fas fa-plus"></i>
+        <span>Submit Request</span>
+      </button>
+
+      <div id="all-requests-list">
+        <p class="empty-text">Loading...</p>
+      </div>
+
+      <div style="height: 20px;"></div>
+    </div>
+  </div>
+
+  <!-- PAYMENT HISTORY PAGE -->
+  <div id="page-payments" class="page">
+    <nav class="topbar">
+      <button class="btn-icon" onclick="showPage('dashboard')">
+        <i class="fas fa-arrow-left"></i>
+      </button>
+      <span class="topbar-title">Payment History</span>
+      <div style="width:40px;"></div>
+    </nav>
+
+    <div class="container">
+      <div class="card total-card" style="margin-top: 4px;">
+        <div class="total-icon">
+          <i class="fas fa-dollar-sign"></i>
+        </div>
+        <p class="total-label">Total Paid (Last 12 Months)</p>
+        <h2 class="total-amount" id="total-paid">$0</h2>
+        <p class="total-sub" id="total-count">0 payments</p>
+      </div>
+
+      <div id="all-payments-list">
+        <p class="empty-text">Loading...</p>
+      </div>
+
+      <div style="height: 20px;"></div>
+    </div>
+  </div>
+
+  <!-- PAY RENT MODAL -->
+  <div id="pay-modal" class="modal-overlay" onclick="closePayModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <h2 class="modal-title">Confirm Rent Payment</h2>
+      <div class="pay-summary">
+        <div class="summary-row">
+          <span>Property</span>
+          <span id="modal-property">--</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-row">
+          <span>Amount</span>
+          <span class="amount-green" id="modal-amount">$0</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-row">
+          <span>Due Day</span>
+          <span id="modal-due-day">--</span>
+        </div>
+      </div>
+      <p class="stripe-note" style="display:flex;align-items:center;justify-content:center;gap:6px;color:#94A3B8;font-size:12px;margin:-4px 0 14px;">
+        <i class="fas fa-lock" style="color:#22C55E;"></i> Secured by Stripe — money goes directly to your landlord or property manager
+      </p>
+      <button class="btn success" onclick="confirmPayment()" id="confirm-pay-btn">
+        <i class="fas fa-credit-card"></i>
+        <span id="confirm-pay-label">Pay with Card</span>
+      </button>
+      <button class="btn secondary" style="margin-top: 10px;" onclick="closePayModal()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- MAINTENANCE REQUEST MODAL -->
+  <div id="maintenance-modal" class="modal-overlay" onclick="closeMaintenanceModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <h2 class="modal-title">New Maintenance Request</h2>
+      <div class="property-badge" id="modal-maint-property">
+        <i class="fas fa-home"></i>
+        <span>--</span>
+      </div>
+      <div class="input-group">
+        <label>Issue Title *</label>
+        <input type="text" id="maint-title" placeholder="e.g. Leaking faucet in kitchen">
+      </div>
+      <div class="input-group">
+        <label>Description (Optional)</label>
+        <textarea id="maint-description" placeholder="Describe the issue in more detail..." rows="4"></textarea>
+      </div>
+      <button class="btn primary" onclick="submitMaintenanceRequest()" id="submit-maint-btn">
+        <i class="fas fa-paper-plane"></i>
+        <span>Submit Request</span>
+      </button>
+      <button class="btn secondary" style="margin-top: 10px;" onclick="closeMaintenanceModal()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toast" class="toast"></div>
+
+  <!-- LOADING OVERLAY -->
+  <div id="loading" class="loading-overlay" style="display:none;">
+    <div class="spinner"></div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

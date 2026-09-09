@@ -1,0 +1,16 @@
+[build]
+  command = "echo Building Functions"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = ["express", "firebase-admin", "stripe"]
+
+# API traffic moved to Vercel (see /api/index.js + vercel.json), so the old
+# /api/* -> Netlify Function redirect is disabled. The function code stays in
+# netlify/functions as a rollback path — uncomment below to switch back.
+# [[redirects]]
+#   force = true
+#   from = "/api/*"
+#   status = 200
+#   to = "/.netlify/functions/api/:splat"
