@@ -1,13 +1,14 @@
 /**
  * EstateFlow API — Vercel serverless entry.
  *
- * Reuses the exact same Express app as the Netlify Function
- * (netlify/functions/api.js) so both hosts run identical logic.
+ * Uses the Express app in ./_app.js (same file the Netlify Function
+ * re-exports), kept inside api/ with underscore-prefixed names so it is
+ * bundled with this function and never exposed as its own route.
  * `bodyParser: false` keeps the raw request bytes available for the
  * Stripe webhook signature check (the app's first middleware parses
  * JSON from them and keeps req.rawBody).
  */
-const { app } = require("../netlify/functions/api");
+const { app } = require("./_app");
 
 module.exports.config = { api: { bodyParser: false } };
 

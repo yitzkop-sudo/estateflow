@@ -22,8 +22,9 @@ This mirrors the proven setup in the `SYNC` project.
 
 | File | Purpose |
 |---|---|
-| `netlify/functions/api.js` | The Express app (all routes + Stripe webhook) |
-| `netlify/functions/shared/utilityapi.js` | UtilityAPI client (token stays server-side) |
+ | `api/_app.js` | The Express app (all routes + Stripe webhook) |
+ | `api/_shared/utilityapi.js` | UtilityAPI client (token stays server-side) |
+ | `netlify/functions/api.js` | Thin re-export of `api/_app.js` (Netlify rollback path) |
 | `netlify/functions/package.json` | Server deps (`express`, `serverless-http`, `firebase-admin`, `stripe`) |
 | `netlify.toml` | Netlify function dir + optional `/api/*` redirect |
 | `src/lib/api.ts` | App-side HTTP client (sends ID token, parses errors) |
