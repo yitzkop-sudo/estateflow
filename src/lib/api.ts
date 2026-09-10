@@ -48,7 +48,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   if (!res.ok) {
-    const msg = body?.message || body?.error || `Request failed (${res.status})`;
+    const raw = body?.message || body?.error || `Request failed (${res.status})`;
+    // Truncate HTML/error dumps so on-screen banners stay readable; full text goes to console.
+    const msg = `${raw}`.length > 200 ? `${`${raw}`.slice(0, 200)}… (HTTP ${res.status} on ${path})` : raw;
+    console.warn(`API ${path} failed (${res.status}):`, raw);
     throw new Error(msg);
   }
   return body as T;

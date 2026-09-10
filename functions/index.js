@@ -48,11 +48,17 @@ function getStripe() {
 }
 
 function webBaseUrl() {
-  const base = (process.env.WEB_BASE_URL || "").replace(/\/+$/, "");
+  const base = (process.env.WEB_BASE_URL || "").trim().replace(/\/+$/, "");
   if (!base) {
     throw new HttpsError(
       "failed-precondition",
       "WEB_BASE_URL is not configured. Set it to the public URL hosting the tenant portal."
+    );
+  }
+  if (!/^https:\/\/[^/\s]+\.[^/\s]+/i.test(base)) {
+    throw new HttpsError(
+      "failed-precondition",
+      `WEB_BASE_URL must be a public https:// URL (got: ${base.slice(0, 80)}). Fix it in env vars and redeploy.`
     );
   }
   return base;
@@ -389,13 +395,14 @@ exports.createUtilitySubscription = onCall({ region: REGION }, async (req) => {
 
   // Meter-only billing: no base plan — the user pays $20 per connected meter.
   // Metered/usage prices take no quantity — Stripe bills actual usage.
-  const meterPriceId = process.env.UTILITY_METER_PRICE_ID || "";
-  if (!meterPriceId) {
+  const meterPriceId = (process.env.UTILITY_METER_PRICE_ID || "").trim();
+  if (!/^price_[A-Za-z0-9]+$/.test(meterPriceId)) {
     throw new HttpsError(
       "failed-precondition",
-      "Per-meter billing is not configured. Add UTILITY_METER_PRICE_ID to functions/.env and redeploy."
+      "Per-meter billing is misconfigured. UTILITY_METER_PRICE_ID must be a Stripe price ID like price_... . Fix it in env vars and redeploy."
     );
   }
+  const base = webBaseUrl(); // throws a clear error before hitting Stripe
 
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
@@ -405,8 +412,8 @@ exports.createUtilitySubscription = onCall({ region: REGION }, async (req) => {
       metadata: { estateflowUid: uid },
     },
     metadata: { estateflowUid: uid },
-    success_url: `${webBaseUrl()}/portal.html?utility=subscribed&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${webBaseUrl()}/portal.html?utility=canceled`,
+    success_url: `${base}/portal.html?utility=subscribed&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${base}/portal.html?utility=canceled`,
   });
 
   return { url: session.url, alreadyActive: false };

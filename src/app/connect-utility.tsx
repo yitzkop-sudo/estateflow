@@ -6,6 +6,7 @@ import {
   Alert,
   Dimensions,
   Image,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -90,8 +91,8 @@ export default function ConnectUtility() {
       // User paid (or cancelled) in the browser — they confirm, we re-check.
       setPaidPending(true);
     } catch (e: any) {
-      const msg = e?.message || "Could not start the checkout.";
-      console.warn("Checkout failed:", e);
+      const msg = `${e?.name || "Error"}: ${e?.message || e || "Could not start the checkout."} (platform: ${Platform.OS})`;
+      console.warn("Checkout failed:", JSON.stringify({ name: e?.name, message: e?.message, stack: e?.stack?.split("\n").slice(0, 4) }));
       setError(msg);
       Alert.alert("Checkout failed", msg);
     } finally {
