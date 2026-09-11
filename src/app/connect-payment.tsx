@@ -64,16 +64,41 @@ export default function ConnectPayment() {
   }, [router, stopPoll, utilityKey, providerUid, providerName]);
 
   // This screen always renders — no silent skipping. Subscribed users get an
-  // explicit Continue button instead of the pay button.
+  // explicit Continue button instead of the pay button. Truth comes from
+  // Stripe (via confirm), not just the stored flag, so a stale/canceled
+  // subscription can never skip payment — it heals server-side and shows pay.
   useEffect(() => {
     if (!auth.currentUser) {
       router.replace("/login");
       return;
     }
-    getUtilitySubscriptionStatus()
-      .then(setSubStatus)
-      .catch((e: any) => setError(e?.message || "Could not load subscription status."))
-      .finally(() => setLoading(false));
+    (async () => {
+      try {
+        const [s, c] = await Promise.all([
+          getUtilitySubscriptionStatus().catch(() => null),
+          confirmUtilitySubscription().catch(() => null),
+        ]);
+        if (s) {
+          setSubStatus({ ...s, active: c ? c.active : s.active });
+        } else if (c?.active) {
+          setSubStatus({
+            active: true,
+            plan: "utility-auto",
+            currentPeriodEnd: null,
+            portalUrl: null,
+            meterLimit: 10,
+            linkedMeters: 0,
+          });
+        } else if (!c) {
+          setError("Could not load subscription status.");
+        }
+        // c?.active === false with s present is already reflected above;
+        // c null + s present keeps the stored flag (confirm errors surface
+        // on pay/manual taps instead of blocking the screen).
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [router]);
 
   // Watch for the new subscription so paying flows straight into step 3.

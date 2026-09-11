@@ -601,6 +601,35 @@ app.post("/confirm-utility-subscription", requireAuth, async (req, res) => {
   const uid = req.uid;
   const before = await getUtilityEntitlement(uid);
   if (before.active) {
+    // Verify the stored flag against Stripe: a canceled subscription whose
+    // delete-webhook never arrived would otherwise skip payment forever.
+    // A stale record is healed here so the user lands on the pay card.
+    try {
+      const subId = before.ua?.stripeSubId;
+      if (subId && stripeConfigured()) {
+        const stripe = stripeFactory(process.env.STRIPE_SECRET_KEY);
+        let live = null;
+        try {
+          live = await stripe.subscriptions.retrieve(subId);
+        } catch (err) {
+          if (err?.code === "resource_missing" || /no such subscription/i.test(err?.message || "")) {
+            live = { status: "canceled", id: subId, customer: before.ua?.stripeCustomerId || null };
+          } else {
+            throw err;
+          }
+        }
+        if (live) {
+          const stillActive = live.status === "active" || live.status === "trialing";
+          if (!stillActive) {
+            await setUtilitySubscription(uid, live);
+            res.json({ active: false, healed: true });
+            return;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Subscription verify failed, trusting stored flag:", err.message);
+    }
     res.json({ active: true, alreadyActive: true });
     return;
   }
