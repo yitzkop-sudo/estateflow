@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -18,10 +19,12 @@ import { auth } from "../lib/firebase";
 import { openExternalUrl } from "../lib/openExternal";
 import { setPendingUtilityLink } from "../lib/pendingUtilityLink";
 import {
+  getSupportedUtilities,
   getUtilitySubscriptionStatus,
   linkUtilityToProperty,
   openAuthForm,
   startUtilitySubscription,
+  type SupportedUtility,
   type UtilitySubStatus,
 } from "../lib/utilityapi";
 
@@ -47,6 +50,11 @@ export default function ConnectUtility() {
   const [formUid, setFormUid] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [providers, setProviders] = useState<SupportedUtility[] | null>(null);
+  const [providersLoading, setProvidersLoading] = useState(true);
+  const [providersError, setProvidersError] = useState<string | null>(null);
+  const [providerQuery, setProviderQuery] = useState("");
+  const [selectedProvider, setSelectedProvider] = useState<SupportedUtility | null>(null);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -66,6 +74,14 @@ export default function ConnectUtility() {
       return;
     }
     loadStatus().finally(() => setLoading(false));
+    // Provider catalog loads independently — no subscription needed to browse.
+    getSupportedUtilities()
+      .then(setProviders)
+      .catch((e: any) => {
+        console.warn("Provider catalog failed:", e);
+        setProvidersError(e?.message || "Could not load the provider list.");
+      })
+      .finally(() => setProvidersLoading(false));
   }, [loadStatus, router]);
 
   const handlePay = async () => {
@@ -133,18 +149,25 @@ export default function ConnectUtility() {
   };
 
   const handleConnect = async () => {
-    if (!subStatus?.active) return;
+    if (!subStatus?.active) {
+      Alert.alert("Pay first", "Complete the $20/meter payment in step 3, then come back here to authorize.");
+      return;
+    }
     if ((subStatus.meterLimit ?? 0) > 0 && (subStatus.linkedMeters ?? 0) >= (subStatus.meterLimit ?? 0)) {
       Alert.alert("Meter limit reached", "Remove a linked utility or manage your plan to add capacity.");
       return;
     }
     setConnecting(true);
     setError(null);
-    setStatusMsg("Opening your utility provider to authorize access...");
+    setStatusMsg(
+      selectedProvider
+        ? `Opening ${selectedProvider.name} to authorize access...`
+        : "Opening your utility provider to authorize access..."
+    );
     let waitingForSignIn = false;
     try {
       const opened = await openExternalUrl(async () => {
-        const form = await openAuthForm();
+        const form = await openAuthForm(selectedProvider?.uid);
         setFormUid(form.formUid);
         return form.url;
       });
@@ -195,6 +218,16 @@ export default function ConnectUtility() {
     (subStatus?.meterLimit ?? 0) > 0 &&
     (subStatus?.linkedMeters ?? 0) >= (subStatus?.meterLimit ?? 0);
 
+  const providerQueryNorm = providerQuery.trim().toLowerCase();
+  const filteredProviders = (providers || [])
+    .filter(
+      (p) =>
+        !providerQueryNorm ||
+        p.name.toLowerCase().includes(providerQueryNorm) ||
+        p.uid.toLowerCase().includes(providerQueryNorm)
+    )
+    .slice(0, 60);
+
   return (
     <SafeAreaView style={styles.container}>
       <Image source={require("../assets/login-bg.png")} style={styles.backgroundImage} resizeMode="cover" />
@@ -210,7 +243,7 @@ export default function ConnectUtility() {
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Connect Provider</Text>
           </View>
-          <Text style={styles.headerSubtitle}>Link your utility account so bills sync automatically.</Text>
+          <Text style={styles.headerSubtitle}>Pick your provider, pay per meter, then sign in — the bill lands in the app.</Text>
         </View>
 
         {error ? (
@@ -226,9 +259,9 @@ export default function ConnectUtility() {
           </View>
         ) : (
           <>
-            {/* ── Pick utility ── */}
+            {/* ── Step 1: utility ── */}
             <View style={styles.cardSection}>
-              <Text style={styles.sectionTitle}>Which utility?</Text>
+              <Text style={styles.sectionTitle}>1 · Which utility?</Text>
               <View style={styles.chipRow}>
                 {UTILITY_KEYS.map((key) => {
                   const selected = utilityKey === key;
@@ -245,7 +278,70 @@ export default function ConnectUtility() {
               </View>
             </View>
 
-            {/* ── Pricing / paywall ── */}
+            {/* ── Step 2: provider ── */}
+            <View style={styles.cardSection}>
+              <Text style={styles.sectionTitle}>2 · Choose your provider</Text>
+              <Text style={styles.sectionSubtitle}>The sign-in page opens straight on this provider.</Text>
+              {providersLoading ? (
+                <ActivityIndicator size="small" color="#3B82F6" style={{ marginTop: 12 }} />
+              ) : providers && providers.length > 0 ? (
+                <>
+                  <View style={styles.searchRow}>
+                    <Feather name="search" size={14} color="#64748B" />
+                    <TextInput
+                      style={styles.searchInput}
+                      placeholder="Search providers (e.g. JCP&L)"
+                      placeholderTextColor="#64748B"
+                      value={providerQuery}
+                      onChangeText={setProviderQuery}
+                      autoCorrect={false}
+                    />
+                    {providerQuery ? (
+                      <TouchableOpacity onPress={() => setProviderQuery("")}>
+                        <Feather name="x" size={14} color="#64748B" />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                  <Text style={styles.resultCount}>
+                    {filteredProviders.length} of {providers.length} providers
+                    {selectedProvider ? ` · selected: ${selectedProvider.name}` : ""}
+                  </Text>
+                  {filteredProviders.map((p) => {
+                    const selected = selectedProvider?.uid === p.uid;
+                    return (
+                      <TouchableOpacity
+                        key={p.uid}
+                        style={[styles.providerRow, selected && styles.providerRowActive]}
+                        onPress={() => setSelectedProvider(selected ? null : p)}
+                      >
+                        <View style={[styles.radio, selected && styles.radioActive]}>
+                          {selected ? <Feather name="check" size={12} color="#FFFFFF" /> : null}
+                        </View>
+                        <Text style={[styles.providerName, selected && styles.providerNameActive]} numberOfLines={1}>
+                          {p.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {filteredProviders.length === 0 ? (
+                    <Text style={styles.finePrint}>No providers match — clear the search or continue without choosing.</Text>
+                  ) : null}
+                  {selectedProvider ? (
+                    <TouchableOpacity onPress={() => setSelectedProvider(null)}>
+                      <Text style={styles.clearChoice}>Clear choice (pick in the browser instead)</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <Text style={styles.finePrint}>Nothing chosen — you'll pick your provider on the sign-in page instead.</Text>
+                  )}
+                </>
+              ) : (
+                <Text style={styles.finePrint}>
+                  {providersError || "Provider list unavailable — you'll pick your provider on the sign-in page instead."}
+                </Text>
+              )}
+            </View>
+
+            {/* ── Step 3: paywall ── */}
             {!subStatus?.active ? (
               <View style={styles.cardSection}>
                 <View style={styles.priceHeaderRow}>
@@ -253,7 +349,7 @@ export default function ConnectUtility() {
                     <Feather name="zap" size={20} color="#34D399" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.sectionTitle}>Auto-sync billing</Text>
+                    <Text style={styles.sectionTitle}>3 · Pay $20/meter</Text>
                     <Text style={styles.sectionSubtitle}>Pay per meter. No base plan.</Text>
                   </View>
                 </View>
@@ -291,56 +387,85 @@ export default function ConnectUtility() {
               </View>
             ) : (
               <View style={styles.cardSection}>
-                <View style={[styles.activeBanner, atMeterCap && styles.capBanner]}>
+                <View style={[styles.activeBanner, { marginBottom: 0 }]}>
+                  <Feather name="check-circle" size={16} color="#34D399" />
+                  <Text style={styles.activeBannerText}>
+                    3 · Paid — auto-sync is on ({subStatus.linkedMeters}/{subStatus.meterLimit} meters).
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* ── Step 4: authorize & finish ── */}
+            <View style={styles.cardSection}>
+              <Text style={styles.sectionTitle}>4 · Authorize & finish</Text>
+              <Text style={styles.sectionSubtitle}>
+                {selectedProvider
+                  ? `Sign in to ${selectedProvider.name}, then finish linking — the bill lands in the app.`
+                  : "Sign in to your provider, then finish linking — the bill lands in the app."}
+              </Text>
+              {subStatus?.active ? (
+                <View style={[styles.activeBanner, atMeterCap && styles.capBanner, { marginTop: 12 }]}>
                   <Feather name={atMeterCap ? "alert-triangle" : "check-circle"} size={16} color={atMeterCap ? "#FBBF24" : "#34D399"} />
                   <Text style={[styles.activeBannerText, atMeterCap && { color: "#FCD34D" }]}>
                     {atMeterCap
                       ? `Meter limit reached (${subStatus.linkedMeters}/${subStatus.meterLimit}).`
-                      : `Auto-sync is on (${subStatus.linkedMeters}/${subStatus.meterLimit} meters). Each new connection bills $20/mo.`}
+                      : `Each new connection bills $20/mo.`}
                   </Text>
                 </View>
-                {connecting && statusMsg ? (
-                  <View style={styles.statusRow}>
-                    <ActivityIndicator size="small" color="#34D399" />
-                    <Text style={styles.statusText}>{statusMsg}</Text>
-                  </View>
-                ) : null}
-                {!authPending ? (
-                  <TouchableOpacity
-                    style={[styles.payButton, (connecting || atMeterCap) && { opacity: 0.6 }]}
-                    onPress={handleConnect}
-                    disabled={connecting || atMeterCap}
-                  >
-                    {connecting ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <>
-                        <Feather name="link" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
-                        <Text style={styles.payButtonText}>Connect {utilityKey} Provider</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={[styles.checkButton, connecting && { opacity: 0.6 }]}
-                    onPress={handleFinishLinking}
-                    disabled={connecting}
-                  >
-                    {connecting ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <>
-                        <Feather name="check" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
-                        <Text style={styles.payButtonText}>I've signed in — Finish linking</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                )}
+              ) : (
+                <View style={[styles.activeBanner, { marginTop: 12, borderColor: "rgba(251,191,36,0.3)", backgroundColor: "rgba(251,191,36,0.08)" }]}>
+                  <Feather name="lock" size={16} color="#FBBF24" />
+                  <Text style={[styles.activeBannerText, { color: "#FCD34D" }]}>
+                    Payment first — complete step 3, then authorize here.
+                  </Text>
+                </View>
+              )}
+              {connecting && statusMsg ? (
+                <View style={styles.statusRow}>
+                  <ActivityIndicator size="small" color="#34D399" />
+                  <Text style={styles.statusText}>{statusMsg}</Text>
+                </View>
+              ) : null}
+              {!authPending ? (
+                <TouchableOpacity
+                  style={[styles.payButton, (!subStatus?.active || connecting || atMeterCap) && { opacity: 0.6 }]}
+                  onPress={handleConnect}
+                  disabled={!subStatus?.active || connecting || atMeterCap}
+                >
+                  {connecting ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Feather name="link" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
+                      <Text style={styles.payButtonText} numberOfLines={1}>
+                        {selectedProvider ? `Sign in to ${selectedProvider.name}` : `Connect ${utilityKey} Provider`}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.checkButton, connecting && { opacity: 0.6 }]}
+                  onPress={handleFinishLinking}
+                  disabled={connecting}
+                >
+                  {connecting ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Feather name="check" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
+                      <Text style={styles.payButtonText}>I've signed in — Finish linking</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+              {subStatus?.active ? (
                 <TouchableOpacity style={styles.manageButton} onPress={handleManage}>
                   <Text style={styles.manageButtonText}>Manage subscription</Text>
                 </TouchableOpacity>
-              </View>
-            )}
+              ) : null}
+            </View>
           </>
         )}
       </ScrollView>
@@ -366,6 +491,16 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: "rgba(37,99,235,0.95)", borderColor: "rgba(59,130,246,0.35)" },
   chipText: { color: "#94A3B8", fontSize: 13, fontWeight: "700" },
   chipTextActive: { color: "#FFFFFF" },
+  searchRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(11,17,32,0.9)", paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, marginTop: 12, borderWidth: 1, borderColor: "rgba(59,130,246,0.12)" },
+  searchInput: { flex: 1, color: "#FFFFFF", fontSize: 14, fontWeight: "600", padding: 0 },
+  resultCount: { color: "#64748B", fontSize: 11, fontWeight: "600", marginTop: 8, marginBottom: 4 },
+  providerRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "rgba(30,41,59,0.65)", paddingHorizontal: 12, paddingVertical: 11, borderRadius: 14, marginBottom: 6, borderWidth: 1, borderColor: "rgba(59,130,246,0.10)" },
+  providerRowActive: { backgroundColor: "rgba(59,130,246,0.18)", borderColor: "#3B82F6" },
+  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: "#475569", alignItems: "center", justifyContent: "center" },
+  radioActive: { backgroundColor: "#3B82F6", borderColor: "#3B82F6" },
+  providerName: { flex: 1, color: "#CBD5E1", fontSize: 13, fontWeight: "600" },
+  providerNameActive: { color: "#FFFFFF", fontWeight: "800" },
+  clearChoice: { color: "#60A5FA", fontSize: 12, fontWeight: "700", marginTop: 4 },
   priceHeaderRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
   priceIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(52,211,153,0.14)", alignItems: "center", justifyContent: "center", marginRight: 12, borderWidth: 1, borderColor: "rgba(52,211,153,0.22)" },
   priceRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: "rgba(30,41,59,0.65)", padding: 14, borderRadius: 16, marginBottom: 8, borderWidth: 1, borderColor: "rgba(59,130,246,0.10)" },

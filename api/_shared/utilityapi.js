@@ -48,13 +48,48 @@ async function api(path, options = {}, { noToken = false } = {}) {
   return res.json();
 }
 
-/** Create an authorization form for the user to complete in their browser. */
-async function createAuthForm() {
-  const form = await api("/forms", {
+/**
+ * List providers (utilities) the user can pick from, simplified to uid+name.
+ * Follows UtilityAPI pagination defensively (caps at 5 pages).
+ */
+async function listUtilities() {
+  const out = [];
+  let page = 1;
+  for (let i = 0; i < 5; i++) {
+    const data = await api(`/utilities?limit=200&page=${page}`);
+    const arr = data.utilities || data.data || [];
+    for (const u of arr) {
+      if (u && u.uid) out.push({ uid: String(u.uid), name: String(u.name || u.display_name || u.uid) });
+    }
+    const totalPages = data.pagination?.total_pages ?? data.total_pages ?? null;
+    if (typeof totalPages === "number" ? page >= totalPages : arr.length === 0) break;
+    page += 1;
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+/**
+ * Create an authorization form for the user to complete in their browser.
+ * When a provider uid is given, the hosted page opens straight on that
+ * provider's login; falls back to a generic form if the API rejects it so a
+ * bad uid can never block connecting.
+ */
+async function createAuthForm(utilityUid) {
+  if (utilityUid) {
+    try {
+      return await api("/forms", {
+        method: "POST",
+        body: JSON.stringify({ utility: utilityUid }),
+      });
+    } catch (e) {
+      console.warn("Preselected-utility form failed, falling back to generic form:", e.message);
+    }
+  }
+  return api("/forms", {
     method: "POST",
     body: JSON.stringify({}),
   });
-  return form;
 }
 
 /** Poll until an authorization linked to a form shows up, then return it. */
@@ -109,10 +144,13 @@ function billDueDay(bill, fallback = 15) {
  * Create an authorization form. Returns { formUid, url } the client opens in a
  * browser so the user can grant access to their utility provider.
  */
-exports.createAuthForm = async () => {
-  const form = await createAuthForm();
+exports.createAuthForm = async (utilityUid) => {
+  const form = await createAuthForm(utilityUid);
   return { formUid: form.uid, url: form.url };
 };
+
+/** Provider catalog for the in-app picker (uid + name, sorted). */
+exports.listUtilities = async () => listUtilities();
 
 /**
  * Link a completed authorization to utility data for a property. Runs the full

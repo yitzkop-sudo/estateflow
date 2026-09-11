@@ -27,6 +27,11 @@ export interface UtilityAuthForm {
   url: string;
 }
 
+export interface SupportedUtility {
+  uid: string;
+  name: string;
+}
+
 /** Whether a paid plan is configured server-side (always true for us). */
 export function isProviderConfigured() {
   // The capability now lives server-side. Return true so the feature UI shows;
@@ -34,9 +39,21 @@ export function isProviderConfigured() {
   return true;
 }
 
-/** Create the UtilityAPI authorization form; returns a browser URL to open. */
-export async function openAuthForm(): Promise<UtilityAuthForm> {
-  return apiPost<UtilityAuthForm>("/create-utility-auth-form");
+/** Provider catalog for the in-app picker. No subscription needed. */
+export async function getSupportedUtilities(): Promise<SupportedUtility[]> {
+  return apiGet<SupportedUtility[]>("/supported-utilities");
+}
+
+/**
+ * Create the UtilityAPI authorization form; returns a browser URL to open.
+ * When a provider uid is given, the hosted page opens straight on that
+ * provider's login.
+ */
+export async function openAuthForm(utilityUid?: string): Promise<UtilityAuthForm> {
+  return apiPost<UtilityAuthForm>(
+    "/create-utility-auth-form",
+    utilityUid ? { utilityUid } : undefined
+  );
 }
 
 /** Complete an authorization and return the linked bill data. */

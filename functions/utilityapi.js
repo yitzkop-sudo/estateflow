@@ -45,10 +45,10 @@ async function api(path, options = {}, { noToken = false } = {}) {
 }
 
 /** Create an authorization form for the user to complete in their browser. */
-async function createAuthForm() {
+async function createAuthForm(body) {
   const form = await api("/forms", {
     method: "POST",
-    body: JSON.stringify({}),
+    body: JSON.stringify(body && typeof body === "object" ? body : {}),
   });
   return form;
 }
@@ -104,10 +104,38 @@ function billDueDay(bill, fallback = 15) {
 /**
  * Create an authorization form. Returns { formUid, url } the client opens in a
  * browser so the user can grant access to their utility provider.
+ * An optional provider uid opens the hosted page straight on that provider.
  */
-exports.createAuthForm = async () => {
-  const form = await createAuthForm();
-  return { formUid: form.uid, url: form.url };
+exports.createAuthForm = async (utilityUid) => {
+  const body = utilityUid ? { utility: utilityUid } : {};
+  try {
+    const form = await createAuthForm(body);
+    return { formUid: form.uid, url: form.url };
+  } catch (e) {
+    if (utilityUid) {
+      const form = await createAuthForm({});
+      return { formUid: form.uid, url: form.url };
+    }
+    throw e;
+  }
+};
+
+/** Provider catalog for the in-app picker (uid + name, sorted). */
+exports.listUtilities = async () => {
+  const out = [];
+  let page = 1;
+  for (let i = 0; i < 5; i++) {
+    const data = await api(`/utilities?limit=200&page=${page}`);
+    const arr = data.utilities || data.data || [];
+    for (const u of arr) {
+      if (u && u.uid) out.push({ uid: String(u.uid), name: String(u.name || u.display_name || u.uid) });
+    }
+    const totalPages = data.pagination?.total_pages ?? data.total_pages ?? null;
+    if (typeof totalPages === "number" ? page >= totalPages : arr.length === 0) break;
+    page += 1;
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
 };
 
 /**

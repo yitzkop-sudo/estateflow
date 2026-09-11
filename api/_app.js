@@ -593,7 +593,22 @@ app.get("/utility-subscription-status", requireAuth, async (req, res) => {
   });
 });
 
+// ─── Provider catalog for the in-app picker (no subscription needed — users
+// pick a provider BEFORE paying, so this stays outside the entitlement gate).
+let supportedUtilitiesCache = { at: 0, data: null };
+app.get("/supported-utilities", requireAuth, async (req, res) => {
+  if (Date.now() - supportedUtilitiesCache.at < 3600000 && supportedUtilitiesCache.data) {
+    res.json(supportedUtilitiesCache.data);
+    return;
+  }
+  const list = await utilityApi.listUtilities();
+  supportedUtilitiesCache = { at: Date.now(), data: list };
+  res.json(list);
+});
+
 // ─── Paid: start the UtilityAPI authorization (returns a browser URL) ─────────
+// Accepts an optional { utilityUid } so the hosted page opens straight on the
+// provider the user already picked in the app.
 app.post("/create-utility-auth-form", requireAuth, async (req, res) => {
   const uid = req.uid;
   const ent = await getUtilityEntitlement(uid);
@@ -602,7 +617,8 @@ app.post("/create-utility-auth-form", requireAuth, async (req, res) => {
   const linked = await countLinkedMeters(uid);
   assertUnderMeterLimit(linked.count, meterLimit());
 
-  const data = await utilityApi.createAuthForm();
+  const utilityUid = String(req.body?.utilityUid || "").trim();
+  const data = await utilityApi.createAuthForm(utilityUid || null);
   res.json(data);
 });
 

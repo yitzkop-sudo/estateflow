@@ -458,7 +458,21 @@ exports.createUtilityAuthForm = onCall({ region: REGION }, async (req) => {
   const linked = await countLinkedMeters(uid);
   assertUnderMeterLimit(linked.count, meterLimit());
 
-  return utilityApi.createAuthForm();
+  const utilityUid = String(req.data?.utilityUid || "").trim();
+  return utilityApi.createAuthForm(utilityUid || null);
+});
+
+// ─── Provider catalog for the in-app picker (no subscription needed — users
+// pick a provider BEFORE paying, so this stays outside the entitlement gate).
+let supportedUtilitiesCache = { at: 0, data: null };
+exports.getSupportedUtilities = onCall({ region: REGION }, async (req) => {
+  if (!req.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+  if (Date.now() - supportedUtilitiesCache.at < 3600000 && supportedUtilitiesCache.data) {
+    return supportedUtilitiesCache.data;
+  }
+  const list = await utilityApi.listUtilities();
+  supportedUtilitiesCache = { at: Date.now(), data: list };
+  return list;
 });
 
 // ─── Paid: finish linking an authorization and return bill data ───────────────
