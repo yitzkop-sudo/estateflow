@@ -43,7 +43,6 @@ export default function ConnectPayment() {
   const [paidPending, setPaidPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const forwardedRef = useRef(false);
 
   const stopPoll = useCallback(() => {
     if (pollRef.current) {
@@ -64,23 +63,18 @@ export default function ConnectPayment() {
     });
   }, [router, stopPoll, utilityKey, providerUid, providerName]);
 
-  // Already subscribed (e.g. second meter) → skip straight to authorize.
+  // This screen always renders — no silent skipping. Subscribed users get an
+  // explicit Continue button instead of the pay button.
   useEffect(() => {
     if (!auth.currentUser) {
       router.replace("/login");
       return;
     }
     getUtilitySubscriptionStatus()
-      .then((s) => {
-        setSubStatus(s);
-        if (s?.active && !forwardedRef.current) {
-          forwardedRef.current = true;
-          goAuthorize();
-        }
-      })
+      .then(setSubStatus)
       .catch((e: any) => setError(e?.message || "Could not load subscription status."))
       .finally(() => setLoading(false));
-  }, [goAuthorize, router]);
+  }, [router]);
 
   // Watch for the new subscription so paying flows straight into step 3.
   // Uses the confirm endpoint (verifies with Stripe directly) so a slow or
@@ -127,7 +121,7 @@ export default function ConnectPayment() {
   // immediately instead of waiting for the next poll tick.
   useFocusEffect(
     useCallback(() => {
-      if (!paidPending || forwardedRef.current) return;
+      if (!paidPending) return;
       confirmUtilitySubscription()
         .then(async (c) => {
           if (c?.active) {
@@ -243,20 +237,35 @@ export default function ConnectPayment() {
             <Text style={styles.finePrint}>
               One meter at $20/mo — that's all you pay. Stay on this screen after paying; it moves on by itself.
             </Text>
-            <TouchableOpacity
-              style={[styles.payButton, paying && { opacity: 0.7 }]}
-              onPress={handlePay}
-              disabled={paying}
-            >
-              {paying ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <>
-                  <Feather name="lock" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
-                  <Text style={styles.payButtonText}>Pay $20/meter & Continue</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            {subStatus?.active ? (
+              <>
+                <View style={styles.subscribedRow}>
+                  <Feather name="check-circle" size={16} color="#34D399" />
+                  <Text style={styles.subscribedText}>
+                    You're subscribed ({subStatus.linkedMeters}/{subStatus.meterLimit} meters) — this meter will bill $20/mo on link.
+                  </Text>
+                </View>
+                <TouchableOpacity style={styles.payButton} onPress={goAuthorize}>
+                  <Text style={styles.payButtonText}>Continue to authorize</Text>
+                  <Feather name="arrow-right" size={16} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                </TouchableOpacity>
+              </>
+            ) : (
+              <TouchableOpacity
+                style={[styles.payButton, paying && { opacity: 0.7 }]}
+                onPress={handlePay}
+                disabled={paying}
+              >
+                {paying ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Feather name="lock" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
+                    <Text style={styles.payButtonText}>Pay $20/meter & Continue</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
             {paidPending ? (
               <>
                 <View style={styles.confirmingRow}>
@@ -304,6 +313,8 @@ const styles = StyleSheet.create({
   priceLabel: { color: "#CBD5E1", fontSize: 14, fontWeight: "600" },
   priceValue: { color: "#FFFFFF", fontSize: 15, fontWeight: "900" },
   finePrint: { color: "#64748B", fontSize: 12, lineHeight: 17, marginVertical: 8 },
+  subscribedRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(52,211,153,0.08)", borderRadius: 14, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: "rgba(52,211,153,0.25)" },
+  subscribedText: { flex: 1, color: "#6EE7B7", fontSize: 12, fontWeight: "600", lineHeight: 17 },
   confirmingRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(52,211,153,0.08)", borderRadius: 14, padding: 12, marginTop: 8, borderWidth: 1, borderColor: "rgba(52,211,153,0.25)" },
   confirmingText: { flex: 1, color: "#6EE7B7", fontSize: 12, fontWeight: "600", lineHeight: 17 },
   payButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#10B981", padding: 14, borderRadius: 16, marginTop: 8 },
