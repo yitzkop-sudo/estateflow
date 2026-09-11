@@ -217,33 +217,69 @@ export default function AddProperty() {
     }
   }, [router, params.propertyId, params.propertyData, isEditing]);
 
-  // Pick up a provider link completed on the Connect screen (and refresh the
-  // subscription status in case the user just paid). Form state is preserved
-  // because the link travels through the handoff store, not route params.
+  // Apply a completed provider link to exactly one utility row.
+  const applyLinkedUtility = (
+    key: UtilityKey,
+    data: { amount: string; provider: string; dueDay: DueDay; meterUid: string; notify?: boolean }
+  ) => {
+    setUtilities((u) => ({
+      ...u,
+      [key]: {
+        amount: data.amount,
+        provider: data.provider,
+        dueDay: data.dueDay,
+        meterUid: data.meterUid,
+        auto: true,
+        notify: data.notify ?? true,
+      },
+    }));
+    setSubStatus((s) => (s ? { ...s, linkedMeters: s.linkedMeters + 1 } : s));
+    Alert.alert("Connected", `${key} bill auto-filled from ${data.provider}: $${data.amount}.`);
+  };
+  const appliedLinkRef = useRef<string | null>(null);
+
+  // Refresh subscription status whenever returning here (e.g. after paying).
   useFocusEffect(
     useCallback(() => {
       getUtilitySubscriptionStatus()
         .then(setSubStatus)
         .catch(() => {});
-      const pending = consumePendingUtilityLink();
-      if (pending && (UTILITY_KEYS as readonly string[]).includes(pending.key)) {
-        const key = pending.key as UtilityKey;
-        setUtilities((u) => ({
-          ...u,
-          [key]: {
-            amount: pending.amount,
-            provider: pending.provider,
-            dueDay: pending.dueDay,
-            meterUid: pending.meterUid,
-            auto: true,
-            notify: pending.notify ?? true,
-          },
-        }));
-        setSubStatus((s) => (s ? { ...s, linkedMeters: s.linkedMeters + 1 } : s));
-        Alert.alert("Connected", `${key} bill auto-filled from ${pending.provider}: $${pending.amount}.`);
-      }
     }, [])
   );
+
+  // Pick up a provider link completed on the Connect screens. The result
+  // travels two ways — handoff store AND route params — so navigation timing
+  // can never drop it. Both paths are idempotent (one alert max per link).
+  useEffect(() => {
+    const pending = consumePendingUtilityLink();
+    if (pending && (UTILITY_KEYS as readonly string[]).includes(pending.key)) {
+      const id = `${pending.key}|${pending.meterUid}|${pending.amount}`;
+      if (appliedLinkRef.current !== id) {
+        appliedLinkRef.current = id;
+        applyLinkedUtility(pending.key as UtilityKey, {
+          amount: pending.amount,
+          provider: pending.provider,
+          dueDay: pending.dueDay,
+          meterUid: pending.meterUid,
+          notify: pending.notify,
+        });
+      }
+      return;
+    }
+    const meterUid = params.linkedMeterUid as string | undefined;
+    const key = params.linkedKey as string | undefined;
+    if (meterUid && key && (UTILITY_KEYS as readonly string[]).includes(key)) {
+      const amount = (params.linkedAmount as string | undefined) ?? "";
+      const provider = (params.linkedProvider as string | undefined) ?? "Unknown provider";
+      const dueRaw = params.linkedDueDay as string | undefined;
+      const dueDay: DueDay = dueRaw === "last" ? "last" : Number(dueRaw) || 15;
+      const id = `${key}|${meterUid}|${amount}`;
+      if (appliedLinkRef.current !== id) {
+        appliedLinkRef.current = id;
+        applyLinkedUtility(key as UtilityKey, { amount, provider, dueDay, meterUid, notify: true });
+      }
+    }
+  });
 
   const updateForm = (key: keyof PropertyData, value: any) =>
     setForm((p) => ({ ...p, [key]: value }));

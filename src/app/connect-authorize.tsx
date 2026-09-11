@@ -96,19 +96,29 @@ export default function ConnectAuthorize() {
       setConnecting(true);
       setStatusMsg("Pulling your latest bill from the provider...");
       try {
-        const data = await linkUtilityToProperty(uid, utilityKey);
-        stopPoll();
-        // Hand the bill to the property form, then go straight back to it —
-        // dismissTo focuses the already-open form, so nothing typed is lost.
-        setPendingUtilityLink({
-          key: utilityKey,
-          amount: data.amount,
-          provider: data.provider,
-          dueDay: data.dueDay,
-          meterUid: data.meterUid,
-        });
-        router.dismissTo("/add-property");
-        Alert.alert("Connected", `${utilityKey} bill auto-filled from ${data.provider}: $${data.amount}.`);
+      const data = await linkUtilityToProperty(uid, utilityKey);
+      stopPoll();
+      // Hand the bill to the property form two ways (store + route params)
+      // so it lands no matter the navigation timing, then go straight back
+      // to the already-open form — nothing typed is lost.
+      setPendingUtilityLink({
+        key: utilityKey,
+        amount: data.amount,
+        provider: data.provider,
+        dueDay: data.dueDay,
+        meterUid: data.meterUid,
+      });
+      router.dismissTo({
+        pathname: "/add-property",
+        params: {
+          linkedKey: utilityKey,
+          linkedAmount: data.amount,
+          linkedProvider: data.provider,
+          linkedDueDay: String(data.dueDay),
+          linkedMeterUid: data.meterUid,
+        },
+      });
+      Alert.alert("Connected", `${utilityKey} bill auto-filled from ${data.provider}: $${data.amount}.`);
       } catch (e: any) {
         const msg = e?.message || "Could not pull the bill. Try again.";
         setError(msg);
