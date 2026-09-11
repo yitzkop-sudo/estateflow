@@ -13,20 +13,42 @@ const { app } = require("./_app");
 module.exports.config = { api: { bodyParser: false } };
 
 module.exports = (req, res) => {
-  // Vercel gives us the raw stream when bodyParser is off — collect it
-  // into the Buffer shape the app's middleware expects (same as
-  // serverless-http provides on Netlify).
-  const chunks = [];
-  req.on("data", (c) => chunks.push(c));
-  req.on("end", () => {
+  const run = () => {
+    let raw = req.body;
+    if (raw !== undefined && raw !== null && !Buffer.isBuffer(raw)) {
+      // The platform pre-parsed the body (object) or handed us text:
+      // normalize back to bytes for the app's middleware.
+      try {
+        raw = typeof raw === "string" ? Buffer.from(raw) : Buffer.from(JSON.stringify(raw));
+      } catch {
+        raw = Buffer.alloc(0);
+      }
+    }
+    if (!Buffer.isBuffer(raw)) raw = Buffer.alloc(0);
     // vercel.json rewrites /api/:path* here; strip the mount prefix so
     // Express sees the same paths as on Netlify (/create-plan-checkout…).
     if (typeof req.url === "string") {
       if (req.url === "/api") req.url = "/";
       else if (req.url.startsWith("/api/")) req.url = req.url.slice(4);
     }
-    req.body = Buffer.concat(chunks);
+    req.body = raw;
     app(req, res);
+  };
+
+  // If the platform already finished/pre-parsed the body, run immediately —
+  // waiting for stream events that will never fire leaves POSTs hanging.
+  // Otherwise (normal in-flight body, or bodiless GET/OPTIONS) collect it.
+  const preParsed = req.body !== undefined && req.body !== null;
+  const alreadyEnded = req.readableEnded === true || req.complete === true;
+  if (preParsed || alreadyEnded) {
+    run();
+    return;
+  }
+  const chunks = [];
+  req.on("data", (c) => chunks.push(c));
+  req.on("end", () => {
+    req.body = Buffer.concat(chunks);
+    run();
   });
   req.on("error", () => {
     res.statusCode = 400;
