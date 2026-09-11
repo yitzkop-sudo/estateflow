@@ -622,6 +622,17 @@ app.post("/create-utility-auth-form", requireAuth, async (req, res) => {
   res.json(data);
 });
 
+// ─── Paid: has the user finished the provider sign-in for this form? ────────
+// Powers the Connect screen's auto-advance: it polls this after opening the
+// provider tab and auto-finishes linking — no manual "finish" tap needed.
+app.get("/auth-form-status", requireAuth, async (req, res) => {
+  const ent = await getUtilityEntitlement(req.uid);
+  assertUtilityEntitlement(ent);
+  const formUid = String(req.query?.formUid || "").trim();
+  if (!formUid) throw new ApiError(400, "Missing formUid.");
+  res.json(await utilityApi.checkAuthFormStatus({ formUid }));
+});
+
 // ─── Paid: finish linking an authorization and return bill data ───────────────
 app.post("/link-utility-auto", requireAuth, async (req, res) => {
   const uid = req.uid;

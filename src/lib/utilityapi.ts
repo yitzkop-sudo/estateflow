@@ -77,6 +77,16 @@ export async function getUtilitySubscriptionStatus(): Promise<UtilitySubStatus> 
   return apiGet<UtilitySubStatus>("/utility-subscription-status");
 }
 
+export interface AuthFormStatus {
+  completed: boolean;
+  meterCount: number;
+}
+
+/** Has the provider sign-in for this auth form completed yet? (for polling) */
+export async function getAuthFormStatus(formUid: string): Promise<AuthFormStatus> {
+  return apiGet<AuthFormStatus>(`/auth-form-status?formUid=${encodeURIComponent(formUid)}`);
+}
+
 /** Start subscribing (returns a Stripe Checkout / portal URL to open). */
 export async function startUtilitySubscription(): Promise<{
   url: string;

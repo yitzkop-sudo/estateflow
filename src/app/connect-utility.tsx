@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -19,6 +19,7 @@ import { auth } from "../lib/firebase";
 import { openExternalUrl } from "../lib/openExternal";
 import { setPendingUtilityLink } from "../lib/pendingUtilityLink";
 import {
+  getAuthFormStatus,
   getSupportedUtilities,
   getUtilitySubscriptionStatus,
   linkUtilityToProperty,
@@ -27,6 +28,14 @@ import {
   type SupportedUtility,
   type UtilitySubStatus,
 } from "../lib/utilityapi";
+
+/** Strip HTML error pages down to a short readable line (stale backends return HTML). */
+const cleanError = (e: any, fallback: string) => {
+  const raw = String(e?.message || e || fallback);
+  const noHtml = raw.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  const short = noHtml.length > 140 ? `${noHtml.slice(0, 140)}…` : noHtml;
+  return short || fallback;
+};
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -55,6 +64,32 @@ export default function ConnectUtility() {
   const [providersError, setProvidersError] = useState<string | null>(null);
   const [providerQuery, setProviderQuery] = useState("");
   const [selectedProvider, setSelectedProvider] = useState<SupportedUtility | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const linkingRef = useRef(false);
+  const formUidRef = useRef<string | null>(null);
+
+  const stopPoll = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  // Never leave a poll running after leaving the screen.
+  useEffect(() => () => stopPoll(), [stopPoll]);
+
+  const loadProviders = useCallback(async () => {
+    setProvidersLoading(true);
+    setProvidersError(null);
+    try {
+      setProviders(await getSupportedUtilities());
+    } catch (e: any) {
+      console.warn("Provider catalog failed:", e);
+      setProvidersError(cleanError(e, "Could not load the provider list."));
+    } finally {
+      setProvidersLoading(false);
+    }
+  }, []);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -75,14 +110,8 @@ export default function ConnectUtility() {
     }
     loadStatus().finally(() => setLoading(false));
     // Provider catalog loads independently — no subscription needed to browse.
-    getSupportedUtilities()
-      .then(setProviders)
-      .catch((e: any) => {
-        console.warn("Provider catalog failed:", e);
-        setProvidersError(e?.message || "Could not load the provider list.");
-      })
-      .finally(() => setProvidersLoading(false));
-  }, [loadStatus, router]);
+    loadProviders();
+  }, [loadStatus, loadProviders, router]);
 
   const handlePay = async () => {
     setPaying(true);
@@ -104,8 +133,10 @@ export default function ConnectUtility() {
         setError("The checkout tab was blocked. Allow popups for this site and try again.");
         return;
       }
-      // User paid (or cancelled) in the browser — they confirm, we re-check.
+      // One continuous flow: watch for the payment in the background and
+      // auto-advance to step 4. The manual button below is just a fallback.
       setPaidPending(true);
+      startPayPoll();
     } catch (e: any) {
       const msg = `${e?.name || "Error"}: ${e?.message || e || "Could not start the checkout."} (platform: ${Platform.OS})`;
       console.warn("Checkout failed:", JSON.stringify({ name: e?.name, message: e?.message, stack: e?.stack?.split("\n").slice(0, 4) }));
@@ -116,11 +147,35 @@ export default function ConnectUtility() {
     }
   };
 
+  // Poll for the new subscription so paying flows straight into step 4
+  // with no manual "I've paid" tap (leaves after ~5 min or on unmount).
+  const startPayPoll = useCallback(() => {
+    stopPoll();
+    let tries = 0;
+    pollRef.current = setInterval(async () => {
+      tries += 1;
+      try {
+        const s = await getUtilitySubscriptionStatus();
+        setSubStatus(s);
+        if (s?.active) {
+          stopPoll();
+          setPaidPending(false);
+          Alert.alert("Payment confirmed", "Auto-sync is on. Continue to step 4 to authorize.");
+          return;
+        }
+      } catch {
+        // keep polling through transient failures
+      }
+      if (tries >= 60) stopPoll();
+    }, 5000);
+  }, [stopPoll]);
+
   const handlePaidDone = async () => {
     setPaying(true);
     try {
       const s = await loadStatus();
       if (s?.active) {
+        stopPoll();
         setPaidPending(false);
         Alert.alert("Subscribed", "Auto-sync is on. Now connect your provider below.");
       } else {
@@ -168,6 +223,7 @@ export default function ConnectUtility() {
     try {
       const opened = await openExternalUrl(async () => {
         const form = await openAuthForm(selectedProvider?.uid);
+        formUidRef.current = form.formUid;
         setFormUid(form.formUid);
         return form.url;
       });
@@ -176,8 +232,9 @@ export default function ConnectUtility() {
         return;
       }
       waitingForSignIn = true;
-      setStatusMsg("Complete the sign-in in your browser, then come back here...");
+      setStatusMsg("Complete the sign-in in the tab that just opened — this screen finishes itself when you're done.");
       setAuthPending(true);
+      startAuthPoll(formUidRef.current);
     } catch (e: any) {
       const msg = e?.message || "Could not connect to the provider.";
       setError(msg);
@@ -188,12 +245,40 @@ export default function ConnectUtility() {
     }
   };
 
-  const handleFinishLinking = async () => {
-    if (!formUid) return;
+  // Poll for the finished sign-in so linking completes itself — the manual
+  // "Finish linking" button below is just a fallback (leaves after ~5 min).
+  const startAuthPoll = useCallback(
+    (uid: string | null) => {
+      if (!uid) return;
+      stopPoll();
+      let tries = 0;
+      pollRef.current = setInterval(async () => {
+        tries += 1;
+        try {
+          const st = await getAuthFormStatus(uid);
+          if (st?.completed) {
+            stopPoll();
+            await runFinishLinking(uid);
+            return;
+          }
+        } catch {
+          // keep polling through transient failures (e.g. slow webhook)
+        }
+        if (tries >= 60) stopPoll();
+      }, 5000);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stopPoll]
+  );
+
+  const runFinishLinking = async (uid: string | null) => {
+    if (!uid || linkingRef.current) return;
+    linkingRef.current = true;
     setConnecting(true);
     setStatusMsg("Pulling your latest bill from the provider...");
     try {
-      const data = await linkUtilityToProperty(formUid);
+      const data = await linkUtilityToProperty(uid);
+      stopPoll();
       setPendingUtilityLink({
         key: utilityKey,
         amount: data.amount,
@@ -211,12 +296,20 @@ export default function ConnectUtility() {
       setConnecting(false);
       setStatusMsg("");
       setAuthPending(false);
+      linkingRef.current = false;
     }
+  };
+
+  const handleFinishLinking = async () => {
+    await runFinishLinking(formUidRef.current ?? formUid);
   };
 
   const atMeterCap =
     (subStatus?.meterLimit ?? 0) > 0 &&
     (subStatus?.linkedMeters ?? 0) >= (subStatus?.meterLimit ?? 0);
+
+  const stepLabels = ["Utility", "Provider", "Pay", "Authorize"];
+  const stepIndex = !selectedProvider ? 1 : !subStatus?.active ? 2 : 3;
 
   const providerQueryNorm = providerQuery.trim().toLowerCase();
   const filteredProviders = (providers || [])
@@ -244,6 +337,25 @@ export default function ConnectUtility() {
             <Text style={styles.headerTitle}>Connect Provider</Text>
           </View>
           <Text style={styles.headerSubtitle}>Pick your provider, pay per meter, then sign in — the bill lands in the app.</Text>
+        </View>
+
+        <View style={styles.stepper}>
+          {stepLabels.map((label, i) => {
+            const done = i < stepIndex;
+            const now = i === stepIndex;
+            return (
+              <View key={label} style={styles.stepItem}>
+                <View style={[styles.stepDot, done && styles.stepDotDone, now && styles.stepDotNow]}>
+                  {done ? (
+                    <Feather name="check" size={10} color="#FFFFFF" />
+                  ) : (
+                    <Text style={[styles.stepNum, now && styles.stepNumNow]}>{i + 1}</Text>
+                  )}
+                </View>
+                <Text style={[styles.stepLabel, (done || now) && styles.stepLabelOn]}>{label}</Text>
+              </View>
+            );
+          })}
         </View>
 
         {error ? (
@@ -335,9 +447,18 @@ export default function ConnectUtility() {
                   )}
                 </>
               ) : (
-                <Text style={styles.finePrint}>
-                  {providersError || "Provider list unavailable — you'll pick your provider on the sign-in page instead."}
-                </Text>
+                <>
+                  <Text style={styles.finePrint}>
+                    {providersError ||
+                      "Provider list unavailable — you'll pick your provider on the sign-in page instead."}
+                  </Text>
+                  {providersError ? (
+                    <TouchableOpacity style={styles.retryButton} onPress={loadProviders}>
+                      <Feather name="refresh-cw" size={13} color="#60A5FA" style={{ marginRight: 6 }} />
+                      <Text style={styles.retryText}>Retry loading providers</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </>
               )}
             </View>
 
@@ -481,6 +602,17 @@ const styles = StyleSheet.create({
   backBtn: { backgroundColor: "#1E293B", padding: SCREEN_WIDTH < 400 ? 8 : 10, borderRadius: SCREEN_WIDTH < 400 ? 8 : 10, marginRight: 12 },
   headerTitle: { color: "#FFFFFF", fontSize: SCREEN_WIDTH < 400 ? 24 : 28, fontWeight: "900", letterSpacing: 0.5 },
   headerSubtitle: { color: "#94A3B8", fontSize: SCREEN_WIDTH < 400 ? 12 : 14, marginTop: 8, lineHeight: 18 },
+  stepper: { flexDirection: "row", justifyContent: "space-between", backgroundColor: "rgba(15,23,42,0.9)", borderRadius: 18, paddingHorizontal: 16, paddingVertical: 12, borderWidth: 1, borderColor: "rgba(59,130,246,0.18)" },
+  stepItem: { alignItems: "center", gap: 4, flex: 1 },
+  stepDot: { width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(30,41,59,0.9)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(71,85,105,0.5)" },
+  stepDotDone: { backgroundColor: "#10B981", borderColor: "#10B981" },
+  stepDotNow: { backgroundColor: "#3B82F6", borderColor: "#3B82F6" },
+  stepNum: { color: "#64748B", fontSize: 11, fontWeight: "800" },
+  stepNumNow: { color: "#FFFFFF" },
+  stepLabel: { color: "#64748B", fontSize: 10, fontWeight: "700" },
+  stepLabelOn: { color: "#E2E8F0" },
+  retryButton: { flexDirection: "row", alignItems: "center", marginTop: 8 },
+  retryText: { color: "#60A5FA", fontSize: 13, fontWeight: "700" },
   errorBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(239,68,68,0.10)", borderRadius: 14, padding: 12, borderWidth: 1, borderColor: "rgba(239,68,68,0.30)" },
   errorText: { flex: 1, color: "#FCA5A5", fontSize: 12, fontWeight: "600", lineHeight: 17 },
   cardSection: { backgroundColor: "rgba(15,23,42,0.9)", borderRadius: 28, padding: SCREEN_WIDTH < 400 ? 16 : 20, borderWidth: 1, borderColor: "rgba(59,130,246,0.18)" },

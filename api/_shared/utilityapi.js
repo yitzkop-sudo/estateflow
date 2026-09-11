@@ -153,6 +153,17 @@ exports.createAuthForm = async (utilityUid) => {
 exports.listUtilities = async () => listUtilities();
 
 /**
+ * Non-destructive status check: has the user finished the provider sign-in
+ * for this form yet? Powers the Connect screen's auto-advance polling.
+ */
+async function checkAuthFormStatus(formUid) {
+  const data = await api(`/authorizations?forms=${encodeURIComponent(formUid)}&include=meters`);
+  const auth = data.authorizations?.[0];
+  return { completed: !!auth, meterCount: auth?.meters?.length || 0 };
+}
+exports.checkAuthFormStatus = async ({ formUid }) => checkAuthFormStatus(formUid);
+
+/**
  * Link a completed authorization to utility data for a property. Runs the full
  * UtilityAPI flow server-side and returns normalized bill data.
  */
