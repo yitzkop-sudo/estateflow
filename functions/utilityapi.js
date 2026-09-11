@@ -72,15 +72,26 @@ async function activateMeters(meterUids) {
   });
 }
 
-async function waitForBills(meterUids, attempts = 40) {
+async function waitForBills(meterUids, attempts = 25) {
+  let states = [];
   for (let i = 0; i < attempts; i++) {
     await delay(3000);
     const data = await api(`/meters?uids=${meterUids.join(",")}`);
-    const meters = data.meters || [];
-    if (meters.some((m) => (m.bill_count || 0) > 0)) return true;
-    if (meters.length > 0 && meters.every((m) => m.status === "errored")) return false;
+    const raw = data.meters || [];
+    const meters = Array.isArray(raw) ? raw : Object.values(raw);
+    states = meters.map((m) => String(m?.status || "unknown"));
+    if (meters.some((m) => (m.bill_count || 0) > 0)) return { ready: true, states };
+    if (meters.length > 0 && meters.every((m) => m.status === "errored")) return { ready: false, states };
   }
-  return false;
+  return { ready: false, states };
+}
+
+/** Display name for a UtilityAPI utility id (falls back to the raw id). */
+function nameForUtility(utilityId) {
+  const id = String(utilityId || "").trim();
+  if (!id) return "Unknown provider";
+  const hit = SUPPORTED_UTILITIES.find((u) => u.uid.toLowerCase() === id.toLowerCase());
+  return hit ? hit.name : id;
 }
 
 async function fetchLatestBill(meterUids) {
@@ -166,9 +177,17 @@ exports.linkForProperty = async ({ formUid }) => {
     throw new HttpsError("not-found", "No utility meters were found for this account.");
   }
   await activateMeters(meterUids);
-  const ready = await waitForBills(meterUids);
+  const { ready, states } = await waitForBills(meterUids);
   if (!ready) {
-    throw new HttpsError("unavailable", "Could not fetch bill data from the provider. Try again later.");
+    // Bills not collected yet — link anyway with what we have; the bill
+    // fills in on refresh instead of failing the whole connect flow.
+    console.warn(`Linking without bills (meter states: ${states.join(", ") || "unknown"}).`);
+    return {
+      amount: "0.00",
+      provider: nameForUtility(auth.utility),
+      dueDay: 15,
+      meterUid: meterUids[0],
+    };
   }
   const bill = await fetchLatestBill(meterUids);
   if (!bill) throw new HttpsError("not-found", "No bills are available yet.");
@@ -176,7 +195,7 @@ exports.linkForProperty = async ({ formUid }) => {
   if (!Number.isFinite(amount) || amount < 0) throw new HttpsError("not-found", "Could not determine the bill amount.");
   return {
     amount: amount.toFixed(2),
-    provider: bill.utility || "Unknown provider",
+    provider: nameForUtility(bill.utility),
     dueDay: billDueDay(bill),
     meterUid: meterUids[0],
   };
@@ -185,14 +204,20 @@ exports.linkForProperty = async ({ formUid }) => {
 /** Refresh bills for a single already-linked meter. */
 exports.refreshMeter = async ({ meterUid }) => {
   await activateMeters([meterUid]);
-  await waitForBills([meterUid], 20);
+  const { ready, states } = await waitForBills([meterUid], 20);
+  if (!ready) {
+    throw new HttpsError(
+      "not-found",
+      `No bills collected yet (meter status: ${states.join(", ") || "unknown"}). Try again in a bit.`
+    );
+  }
   const bill = await fetchLatestBill([meterUid]);
   if (!bill) throw new HttpsError("not-found", "No bills are available yet.");
   const amount = billAmount(bill);
   if (!Number.isFinite(amount) || amount < 0) throw new HttpsError("not-found", "Could not determine the bill amount.");
   return {
     amount: amount.toFixed(2),
-    provider: bill.utility || "Unknown provider",
+    provider: nameForUtility(bill.utility),
     dueDay: billDueDay(bill),
   };
 };
