@@ -91,20 +91,68 @@ function utilityPlanPriceId() {
   return id;
 }
 
+// Billing is per utility: one $20/mo subscription per utility key (Electric,
+// Water, …). A subscription tagged Electric never covers Water.
+const UTILITY_KEYS = ["Electric", "Water", "Gas", "Oil", "Sewer", "Trash"];
+
+function normalizeUtilityKey(key) {
+  const k = String(key || "").trim();
+  return UTILITY_KEYS.includes(k) ? k : null;
+}
+
+function subRecordActive(rec) {
+  if (!rec || !rec.active) return false;
+  const end = rec.currentPeriodEnd?.toDate?.() || rec.currentPeriodEnd || null;
+  const endMs = end instanceof Date ? end.getTime() : typeof end === "number" ? end : null;
+  return !(endMs && endMs < Date.now());
+}
+
 async function getUtilityEntitlement(uid) {
   const snap = await db.collection("users").doc(uid).get();
   const ua = snap.exists ? snap.data()?.utilityAuto || {} : {};
-  const active = !!ua.active;
-  const currentPeriodEnd = ua.currentPeriodEnd?.toDate?.() || ua.currentPeriodEnd || null;
-  const lapsed = active && currentPeriodEnd && currentPeriodEnd.getTime() < Date.now();
-  return { active: active && !lapsed, ua, stripeCustomerId: ua.stripeCustomerId || null };
+  const subs = { ...(ua.subs || {}) };
+  // Grandfather legacy single-subscription records (no per-key map): they
+  // covered everything, so they keep covering everything.
+  const legacy = !Object.keys(subs).length && !!ua.active && !!ua.stripeSubId;
+  const legacyActive =
+    legacy &&
+    (() => {
+      const end = ua.currentPeriodEnd?.toDate?.() || ua.currentPeriodEnd || null;
+      const endMs = end instanceof Date ? end.getTime() : typeof end === "number" ? end : null;
+      return !(endMs && endMs < Date.now());
+    })();
+  const activeKeys = UTILITY_KEYS.filter((k) => legacyActive || subRecordActive(subs[k]));
+  return {
+    active: activeKeys.length > 0,
+    activeKeys,
+    subs,
+    legacyActive: !!legacyActive,
+    ua,
+    stripeCustomerId: ua.stripeCustomerId || null,
+  };
+}
+
+/** Is this utility key covered by its own active subscription (or legacy)? */
+function keyCovered(ent, key) {
+  if (!key || !UTILITY_KEYS.includes(key)) return false;
+  if (ent.legacyActive) return true;
+  return subRecordActive(ent.subs?.[key]);
 }
 
 function assertUtilityEntitlement(ent) {
   if (!ent.active) {
     throw new ApiError(
       403,
-      "Auto utility sync requires an active subscription. Sign up for the auto-sync plan to continue, or enter utilities manually for free."
+      "Auto utility sync requires an active subscription. Connect your provider to continue ($20/meter/month), or enter utilities manually for free."
+    );
+  }
+}
+
+function assertUtilityEntitlementForKey(ent, key) {
+  if (!keyCovered(ent, key)) {
+    throw new ApiError(
+      403,
+      `This utility (${key || "unknown"}) needs its own $20/month subscription. Complete payment for it first, or enter utilities manually for free.`
     );
   }
 }
@@ -148,16 +196,44 @@ async function setUtilitySubscription(uid, stripeSub) {
   const status = stripeSub.status;
   const active = status === "active" || status === "trialing";
   const periodEnd = stripeSub.current_period_end ? new Date(stripeSub.current_period_end * 1000) : null;
-  await db.collection("users").doc(uid).set(
+  const key = normalizeUtilityKey(stripeSub.metadata?.utilityKey);
+  const record = {
+    active,
+    stripeSubId: stripeSub.id,
+    stripeCustomerId: stripeSub.customer || null,
+    stripePriceId: stripeSub.items?.data?.[0]?.price?.id || null,
+    status: status || "unknown",
+    currentPeriodEnd: periodEnd ? admin.firestore.Timestamp.fromDate(periodEnd) : null,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+  const usersRef = db.collection("users").doc(uid);
+  if (!key) {
+    // Legacy subscription with no utility tag (old base plan): keep the
+    // previous behavior — one record covering everything.
+    await usersRef.set(
+      {
+        utilityAuto: {
+          ...record,
+          plan: "utility-auto",
+        },
+      },
+      { merge: true }
+    );
+    return;
+  }
+  // Per-utility subscription: upsert this key's record, then recompute the
+  // top-level flag from all keys (legacy record included).
+  const snap = await usersRef.get();
+  const ua = snap.exists ? snap.data()?.utilityAuto || {} : {};
+  const subs = { ...(ua.subs || {}), [key]: record };
+  const anyActive = UTILITY_KEYS.some((k) => subRecordActive(subs[k])) || (!!ua.active && !!ua.stripeSubId);
+  await usersRef.set(
     {
       utilityAuto: {
-        active,
+        active: anyActive,
         plan: "utility-auto",
-        stripeSubId: stripeSub.id,
-        stripeCustomerId: stripeSub.customer || null,
-        stripePriceId: stripeSub.items?.data?.[0]?.price?.id || null,
-        status: status || "unknown",
-        currentPeriodEnd: periodEnd ? admin.firestore.Timestamp.fromDate(periodEnd) : null,
+        stripeCustomerId: stripeSub.customer || ua.stripeCustomerId || null,
+        subs,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
     },
@@ -256,30 +332,8 @@ async function setPlanSubscription({ plan, email, subObj, uid = null }) {
   }
 }
 
-/**
- * Sync the subscription quantity to the linked-meter count ($20/meter).
- * UTILITY_METER_PRICE_ID must be a FLAT recurring price (standard pricing,
- * NOT metered/usage-based) so each meter bills $20/mo upfront — due today at
- * checkout and prorated when meters are added mid-cycle.
- */
-async function syncMeterQuantity(uid) {
-  const meterPriceId = (process.env.UTILITY_METER_PRICE_ID || "").trim();
-  if (!meterPriceId || !stripeConfigured()) return;
-  try {
-    const ent = await getUtilityEntitlement(uid);
-    const subId = ent.ua?.stripeSubId;
-    if (!ent.active || !subId) return;
-    const stripe = stripeFactory(process.env.STRIPE_SECRET_KEY);
-    const sub = await stripe.subscriptions.retrieve(subId);
-    const item = (sub.items?.data || []).find((i) => i.price?.id === meterPriceId);
-    if (!item) return; // meter price not on this subscription — nothing to sync
-    const { count } = await countLinkedMeters(uid);
-    if (item.quantity === count) return; // already correct
-    await stripe.subscriptionItems.update(item.id, { quantity: count });
-  } catch (err) {
-    console.error("Meter quantity sync failed:", err.message);
-  }
-}
+// NOTE: billing is per utility key (one flat $20/mo subscription each), so
+// there is no quantity syncing — each subscription is simply quantity 1.
 
 // ─── Express app + auth middleware ────────────────────────────────────────────
 const app = express();
@@ -512,15 +566,21 @@ app.get("/connect-status", requireAuth, async (req, res) => {
   });
 });
 
-// ─── Paid: subscribe to auto utility bill sync ────────────────────────────────
+// ─── Paid: subscribe one utility to auto bill sync ($20/mo each) ─────────────
+// Billing is per utility key: paying for Electric never covers Water. Every
+// connect pays unless THIS key is already covered (then they go to the
+// billing portal instead of buying a duplicate).
 app.post("/create-utility-subscription", requireAuth, async (req, res) => {
   const uid = req.uid;
   const stripe = stripeFactory(process.env.STRIPE_SECRET_KEY);
 
+  const utilityKey = normalizeUtilityKey(req.body?.utilityKey);
+  if (!utilityKey) throw new ApiError(400, "Missing utility (Electric, Water, Gas, Oil, Sewer or Trash).");
+
   const ent = await getUtilityEntitlement(uid);
 
-  if (ent.active && ent.ua.stripeCustomerId) {
-    const url = await createBillingPortal(stripe, ent.ua.stripeCustomerId);
+  if (keyCovered(ent, utilityKey) && ent.stripeCustomerId) {
+    const url = await createBillingPortal(stripe, ent.stripeCustomerId);
     res.json({ url, alreadyActive: true });
     return;
   }
@@ -553,12 +613,12 @@ app.post("/create-utility-subscription", requireAuth, async (req, res) => {
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     customer: customerId,
-    // Flat $20/mo per meter, first meter included → $20.00 due today.
+    // Flat $20/mo for THIS utility → $20.00 due today.
     line_items: [{ price: meterPriceId, quantity: 1 }],
     subscription_data: {
-      metadata: { estateflowUid: uid },
+      metadata: { estateflowUid: uid, utilityKey },
     },
-    metadata: { estateflowUid: uid },
+    metadata: { estateflowUid: uid, utilityKey },
     success_url: `${base}/utility-return.html?utility=subscribed&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${base}/utility-return.html?utility=canceled`,
   });
@@ -572,9 +632,11 @@ app.post("/create-utility-subscription", requireAuth, async (req, res) => {
 // the user's subscription via the estateflowUid metadata Stripe was given at
 // checkout (or a specific session id), activates the entitlement exactly like
 // the webhook would, and reports whether it's live yet.
-async function findActiveUtilitySub(stripe, uid, customerId) {
+async function findActiveUtilitySub(stripe, uid, customerId, utilityKey) {
   const isLive = (s) =>
-    (s.status === "active" || s.status === "trialing") && s.metadata?.estateflowUid === uid;
+    (s.status === "active" || s.status === "trialing") &&
+    s.metadata?.estateflowUid === uid &&
+    (!utilityKey || s.metadata?.utilityKey === utilityKey);
   // Direct customer lookup first: strongly consistent, no search-index lag,
   // so a subscription created seconds ago is visible immediately.
   if (customerId) {
@@ -599,13 +661,17 @@ async function findActiveUtilitySub(stripe, uid, customerId) {
 
 app.post("/confirm-utility-subscription", requireAuth, async (req, res) => {
   const uid = req.uid;
+  // Which utility is being paid for (optional; falls back to overall status).
+  const utilityKey = normalizeUtilityKey(req.body?.utilityKey);
   const before = await getUtilityEntitlement(uid);
-  if (before.active) {
+  const covered = (ent) => (utilityKey ? keyCovered(ent, utilityKey) : ent.active);
+  if (covered(before)) {
     // Verify the stored flag against Stripe: a canceled subscription whose
     // delete-webhook never arrived would otherwise skip payment forever.
     // A stale record is healed here so the user lands on the pay card.
     try {
-      const subId = before.ua?.stripeSubId;
+      const rec = utilityKey ? before.subs?.[utilityKey] : null;
+      const subId = rec?.stripeSubId || before.ua?.stripeSubId;
       if (subId && stripeConfigured()) {
         const stripe = stripeFactory(process.env.STRIPE_SECRET_KEY);
         let live = null;
@@ -645,6 +711,7 @@ app.post("/confirm-utility-subscription", requireAuth, async (req, res) => {
       if (
         candidate &&
         candidate.metadata?.estateflowUid === uid &&
+        (!utilityKey || candidate.metadata?.utilityKey === utilityKey) &&
         (candidate.status === "active" || candidate.status === "trialing")
       ) {
         sub = candidate;
@@ -666,7 +733,7 @@ app.post("/confirm-utility-subscription", requireAuth, async (req, res) => {
       if (!customerId) {
         detail = "no Stripe customer on file for this user";
       } else {
-        const found = await findActiveUtilitySub(stripe, uid, customerId);
+        const found = await findActiveUtilitySub(stripe, uid, customerId, utilityKey);
         sub = found.sub;
         if (!sub) {
           detail = found.searched
@@ -684,7 +751,6 @@ app.post("/confirm-utility-subscription", requireAuth, async (req, res) => {
     return;
   }
   await setUtilitySubscription(uid, sub);
-  await syncMeterQuantity(uid);
   res.json({ active: true });
 });
 
@@ -705,6 +771,22 @@ app.get("/utility-subscription-status", requireAuth, async (req, res) => {
   const limit = meterLimit();
   const linked = await countLinkedMeters(uid);
 
+  const subscriptions = {};
+  for (const key of UTILITY_KEYS) {
+    const rec = ent.subs?.[key];
+    if (ent.legacyActive) {
+      subscriptions[key] = { active: true, legacy: true, currentPeriodEnd: null };
+    } else if (rec) {
+      const end = rec.currentPeriodEnd?.toDate?.() || rec.currentPeriodEnd || null;
+      subscriptions[key] = {
+        active: subRecordActive(rec),
+        currentPeriodEnd: end instanceof Date ? end.toISOString() : end || null,
+      };
+    } else {
+      subscriptions[key] = { active: false, currentPeriodEnd: null };
+    }
+  }
+
   res.json({
     active: ent.active,
     plan: ent.active ? ent.ua.plan || "utility-auto" : null,
@@ -712,6 +794,8 @@ app.get("/utility-subscription-status", requireAuth, async (req, res) => {
     portalUrl,
     meterLimit: limit,
     linkedMeters: linked.count,
+    subscriptions,
+    activeKeys: ent.activeKeys,
   });
 });
 
@@ -739,6 +823,10 @@ app.post("/create-utility-auth-form", requireAuth, async (req, res) => {
   const linked = await countLinkedMeters(uid);
   assertUnderMeterLimit(linked.count, meterLimit());
 
+  // Per-utility gate: this key must have its own active subscription.
+  const utilityKey = normalizeUtilityKey(req.body?.utilityKey);
+  if (utilityKey) assertUtilityEntitlementForKey(ent, utilityKey);
+
   const utilityUid = String(req.body?.utilityUid || "").trim();
   const data = await utilityApi.createAuthForm(utilityUid || null);
   res.json(data);
@@ -764,6 +852,11 @@ app.post("/link-utility-auto", requireAuth, async (req, res) => {
   const formUid = String(req.body?.formUid || "").trim();
   if (!formUid) throw new ApiError(400, "Missing formUid.");
 
+  // Per-utility gate: linking this key needs its own active subscription.
+  // Each subscription is flat $20/mo, so no quantity syncing is needed.
+  const utilityKey = normalizeUtilityKey(req.body?.utilityKey);
+  if (utilityKey) assertUtilityEntitlementForKey(ent, utilityKey);
+
   const { count, meterUids } = await countLinkedMeters(uid);
   assertUnderMeterLimit(count, meterLimit());
 
@@ -771,25 +864,46 @@ app.post("/link-utility-auto", requireAuth, async (req, res) => {
   if (data.meterUid && !meterUids.has(String(data.meterUid))) {
     assertUnderMeterLimit(count + 1, meterLimit());
   }
-  // Keep the $20/meter quantity in step with actually-linked meters.
-  await syncMeterQuantity(uid);
   res.json(data);
 });
 
 // ─── Paid: refresh one already-linked meter's bill ────────────────────────────
 app.post("/refresh-utility-auto", requireAuth, async (req, res) => {
   const uid = req.uid;
-  const ent = await getUtilityEntitlement(uid);
+  const ent = await getUtilityEntitlement(req.uid);
   assertUtilityEntitlement(ent);
 
   const meterUid = String(req.body?.meterUid || "").trim();
   if (!meterUid) throw new ApiError(400, "Missing meterUid.");
 
+  // Per-utility gate: the meter's own utility key must be covered. Falls back
+  // to any-active when the meter isn't found (e.g. not saved to a property).
+  const keys = await findUtilityKeysForMeter(uid, meterUid);
+  if (keys.length > 0 && !keys.some((k) => keyCovered(ent, k))) {
+    throw new ApiError(
+      403,
+      `The subscription covering this utility is no longer active. Reconnect it ($20/month) or enter bills manually.`
+    );
+  }
+
   const data = await utilityApi.refreshMeter({ meterUid });
-  // Re-sync quantity here too so removed meters stop billing on next refresh.
-  await syncMeterQuantity(uid);
   res.json(data);
 });
+
+/** Which utility keys use this meter across the user's properties? */
+async function findUtilityKeysForMeter(uid, meterUid) {
+  const snap = await db.collection("properties").where("ownerId", "==", uid).get();
+  const keys = new Set();
+  snap.docs.forEach((doc) => {
+    const utilities = doc.data()?.utilities || {};
+    Object.entries(utilities).forEach(([key, u]) => {
+      if (u && String(u.meterUid || "") === String(meterUid) && UTILITY_KEYS.includes(key)) {
+        keys.add(key);
+      }
+    });
+  });
+  return [...keys];
+}
 
 // ─── Plans: Stripe Checkout from the marketing site ───────────────────────────
 app.post("/create-plan-checkout", async (req, res) => {

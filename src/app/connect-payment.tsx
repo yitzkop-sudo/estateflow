@@ -74,32 +74,19 @@ export default function ConnectPayment() {
     }
     (async () => {
       try {
-        const [s, c] = await Promise.all([
-          getUtilitySubscriptionStatus().catch(() => null),
-          confirmUtilitySubscription().catch(() => null),
-        ]);
+        // Confirm first (heals stale records), then load display status.
+        await confirmUtilitySubscription(undefined, utilityKey).catch(() => null);
+        const s = await getUtilitySubscriptionStatus().catch(() => null);
         if (s) {
-          setSubStatus({ ...s, active: c ? c.active : s.active });
-        } else if (c?.active) {
-          setSubStatus({
-            active: true,
-            plan: "utility-auto",
-            currentPeriodEnd: null,
-            portalUrl: null,
-            meterLimit: 10,
-            linkedMeters: 0,
-          });
-        } else if (!c) {
+          setSubStatus(s);
+        } else {
           setError("Could not load subscription status.");
         }
-        // c?.active === false with s present is already reflected above;
-        // c null + s present keeps the stored flag (confirm errors surface
-        // on pay/manual taps instead of blocking the screen).
       } finally {
         setLoading(false);
       }
     })();
-  }, [router]);
+  }, [router, utilityKey]);
 
   // Watch for the new subscription so paying flows straight into step 3.
   // Uses the confirm endpoint (verifies with Stripe directly) so a slow or
@@ -113,7 +100,7 @@ export default function ConnectPayment() {
     pollRef.current = setInterval(async () => {
       tries += 1;
       try {
-        const c = await confirmUtilitySubscription();
+        const c = await confirmUtilitySubscription(undefined, utilityKey);
         consecutiveErrors = 0;
         if (c?.active) {
           const s = await getUtilitySubscriptionStatus().catch(() => null);
@@ -147,7 +134,7 @@ export default function ConnectPayment() {
   useFocusEffect(
     useCallback(() => {
       if (!paidPending) return;
-      confirmUtilitySubscription()
+      confirmUtilitySubscription(undefined, utilityKey)
         .then(async (c) => {
           if (c?.active) {
             const s = await getUtilitySubscriptionStatus().catch(() => null);
@@ -156,7 +143,7 @@ export default function ConnectPayment() {
           }
         })
         .catch(() => {});
-    }, [paidPending, goAuthorize])
+    }, [paidPending, goAuthorize, utilityKey])
   );
 
   const handlePay = async () => {
@@ -165,7 +152,7 @@ export default function ConnectPayment() {
     try {
       let alreadyActive = false;
       const opened = await openExternalUrl(async () => {
-        const res = await startUtilitySubscription();
+        const res = await startUtilitySubscription(utilityKey);
         alreadyActive = res.alreadyActive;
         if (alreadyActive) return "";
         return res.url;
@@ -193,7 +180,7 @@ export default function ConnectPayment() {
   const handlePaidDone = async () => {
     setPaying(true);
     try {
-      const c = await confirmUtilitySubscription();
+      const c = await confirmUtilitySubscription(undefined, utilityKey);
       if (c?.active) {
         const s = await getUtilitySubscriptionStatus().catch(() => null);
         if (s) setSubStatus(s);
@@ -210,6 +197,11 @@ export default function ConnectPayment() {
       setPaying(false);
     }
   };
+
+  // Per-utility coverage: this key needs its own subscription. Only fall back
+  // to the overall flag when the server sent no per-key map (old backend).
+  const keySubs = subStatus?.subscriptions;
+  const covered = keySubs ? !!keySubs[utilityKey]?.active : !!subStatus?.active;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -260,14 +252,14 @@ export default function ConnectPayment() {
               <Text style={styles.priceValue}>$20.00/mo</Text>
             </View>
             <Text style={styles.finePrint}>
-              One meter at $20/mo — that's all you pay. Stay on this screen after paying; it moves on by itself.
+              {utilityKey} costs $20/mo on its own subscription — other utilities each need theirs. Stay on this screen after paying; it moves on by itself.
             </Text>
-            {subStatus?.active ? (
+            {covered ? (
               <>
                 <View style={styles.subscribedRow}>
                   <Feather name="check-circle" size={16} color="#34D399" />
                   <Text style={styles.subscribedText}>
-                    You're subscribed ({subStatus.linkedMeters}/{subStatus.meterLimit} meters) — this meter will bill $20/mo on link.
+                    {utilityKey} is covered — linking it bills $20/mo on its subscription.
                   </Text>
                 </View>
                 <TouchableOpacity style={styles.payButton} onPress={goAuthorize}>

@@ -96,7 +96,7 @@ export default function ConnectAuthorize() {
       setConnecting(true);
       setStatusMsg("Pulling your latest bill from the provider...");
       try {
-        const data = await linkUtilityToProperty(uid);
+        const data = await linkUtilityToProperty(uid, utilityKey);
         stopPoll();
         // Hand the bill to the property form, then go straight back to it —
         // dismissTo focuses the already-open form, so nothing typed is lost.
@@ -153,8 +153,11 @@ export default function ConnectAuthorize() {
     [runFinishLinking, stopPoll]
   );
 
+  const keySubs = subStatus?.subscriptions;
+  const keyCovered = keySubs ? !!keySubs[utilityKey]?.active : !!subStatus?.active;
+
   const handleConnect = async () => {
-    if (!subStatus?.active) {
+    if (!keyCovered) {
       router.replace({
         pathname: "/connect-payment",
         params: providerUid ? { utilityKey, providerUid, providerName: providerName || "" } : { utilityKey },
@@ -173,7 +176,7 @@ export default function ConnectAuthorize() {
     let waitingForSignIn = false;
     try {
       const opened = await openExternalUrl(async () => {
-        const form = await openAuthForm(providerUid || undefined);
+        const form = await openAuthForm(providerUid || undefined, utilityKey);
         formUidRef.current = form.formUid;
         return form.url;
       });
@@ -249,7 +252,7 @@ export default function ConnectAuthorize() {
                 {providerName ? ` · ${providerName}` : ""} · $20/mo
               </Text>
             </View>
-            {!subStatus?.active ? (
+            {!keyCovered ? (
               <View style={[styles.noticeBanner, { borderColor: "rgba(251,191,36,0.3)", backgroundColor: "rgba(251,191,36,0.08)" }]}>
                 <Feather name="lock" size={16} color="#FBBF24" />
                 <Text style={[styles.noticeText, { color: "#FCD34D" }]}>
@@ -260,7 +263,7 @@ export default function ConnectAuthorize() {
               <View style={[styles.noticeBanner, { borderColor: "rgba(251,191,36,0.3)", backgroundColor: "rgba(251,191,36,0.08)" }]}>
                 <Feather name="alert-triangle" size={16} color="#FBBF24" />
                 <Text style={[styles.noticeText, { color: "#FCD34D" }]}>
-                  Meter limit reached ({subStatus.linkedMeters}/{subStatus.meterLimit}).
+                  Meter limit reached ({subStatus?.linkedMeters ?? 0}/{subStatus?.meterLimit ?? 0}).
                 </Text>
               </View>
             ) : null}

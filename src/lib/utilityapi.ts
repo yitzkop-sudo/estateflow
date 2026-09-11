@@ -6,6 +6,14 @@ import { apiGet, apiPost } from "./api";
  * free tier, users enter utilities manually instead.
  */
 
+export interface UtilityKeyStatus {
+  active: boolean;
+  legacy?: boolean;
+  currentPeriodEnd: string | null;
+}
+
+// Billing is per utility: one $20/mo subscription per utility key. Paying
+// for Electric never covers Water — each key needs its own subscription.
 export type UtilitySubStatus = {
   active: boolean;
   plan: string | null;
@@ -13,6 +21,8 @@ export type UtilitySubStatus = {
   portalUrl: string | null;
   meterLimit: number;
   linkedMeters: number;
+  subscriptions?: Record<string, UtilityKeyStatus>;
+  activeKeys?: string[];
 };
 
 export interface LinkedUtilityData {
@@ -49,18 +59,28 @@ export async function getSupportedUtilities(): Promise<SupportedUtility[]> {
  * When a provider uid is given, the hosted page opens straight on that
  * provider's login.
  */
-export async function openAuthForm(utilityUid?: string): Promise<UtilityAuthForm> {
+export async function openAuthForm(
+  utilityUid?: string,
+  utilityKey?: string
+): Promise<UtilityAuthForm> {
+  const body: Record<string, string> = {};
+  if (utilityUid) body.utilityUid = utilityUid;
+  if (utilityKey) body.utilityKey = utilityKey;
   return apiPost<UtilityAuthForm>(
     "/create-utility-auth-form",
-    utilityUid ? { utilityUid } : undefined
+    Object.keys(body).length ? body : undefined
   );
 }
 
 /** Complete an authorization and return the linked bill data. */
 export async function linkUtilityToProperty(
-  formUid: string
+  formUid: string,
+  utilityKey?: string
 ): Promise<LinkedUtilityData> {
-  return apiPost<LinkedUtilityData>("/link-utility-auto", { formUid });
+  return apiPost<LinkedUtilityData>("/link-utility-auto", {
+    formUid,
+    ...(utilityKey ? { utilityKey } : {}),
+  });
 }
 
 /** Refresh an already-linked meter and return its latest bill data. */
@@ -87,25 +107,37 @@ export async function getAuthFormStatus(formUid: string): Promise<AuthFormStatus
   return apiGet<AuthFormStatus>(`/auth-form-status?formUid=${encodeURIComponent(formUid)}`);
 }
 
-/** Start subscribing (returns a Stripe Checkout / portal URL to open). */
-export async function startUtilitySubscription(): Promise<{
+/**
+ * Start subscribing ONE utility (returns a Stripe Checkout / portal URL).
+ * Every connect pays — a utilityKey is required so the subscription is
+ * tagged to the right record. Already covered → billing portal instead.
+ */
+export async function startUtilitySubscription(
+  utilityKey: string
+): Promise<{
   url: string;
   alreadyActive: boolean;
 }> {
   return apiPost<{ url: string; alreadyActive: boolean }>(
-    "/create-utility-subscription"
+    "/create-utility-subscription",
+    { utilityKey }
   );
 }
 
 /**
  * Confirm a just-completed Stripe Checkout without waiting for webhooks.
- * Activates the entitlement from Stripe directly and reports if it's live.
+ * Activates the entitlement from Stripe directly and reports if THIS
+ * utility is covered yet.
  */
 export async function confirmUtilitySubscription(
-  sessionId?: string
+  sessionId?: string,
+  utilityKey?: string
 ): Promise<{ active: boolean; alreadyActive?: boolean; detail?: string }> {
+  const body: Record<string, string> = {};
+  if (sessionId) body.sessionId = sessionId;
+  if (utilityKey) body.utilityKey = utilityKey;
   return apiPost<{ active: boolean; alreadyActive?: boolean; detail?: string }>(
     "/confirm-utility-subscription",
-    sessionId ? { sessionId } : undefined
+    Object.keys(body).length ? body : undefined
   );
 }

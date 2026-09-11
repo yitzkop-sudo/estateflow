@@ -27,12 +27,9 @@ import { auth, db, storage } from "../lib/firebase";
 import { consumePendingUtilityLink } from "../lib/pendingUtilityLink";
 import {
   getUtilitySubscriptionStatus,
-  linkUtilityToProperty,
-  openAuthForm,
   refreshUtilityForProperty,
   type UtilitySubStatus,
 } from "../lib/utilityapi";
-import { openBrowserAsync } from "expo-web-browser";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -467,34 +464,10 @@ export default function AddProperty() {
     setUtilities(copy);
   };
 
-  const handleLinkUtility = async (key: UtilityKey) => {
-    if (!subStatus?.active) {
-      Alert.alert("Upgrade required", "Auto utility sync is a paid feature. Sign up to pull your bills straight from the provider.");
-      return;
-    }
-    if (subStatus.meterLimit > 0 && subStatus.linkedMeters >= subStatus.meterLimit) {
-      Alert.alert("Meter limit reached", `Your plan includes ${subStatus.meterLimit} linked meters and you've used all of them. Remove a linked utility or manage your plan to add capacity. You can still enter utilities manually for free.`);
-      return;
-    }
-    setConnectingUtility(key);
-    setConnectStatus("Opening your utility provider to authorize access...");
-    try {
-      const form = await openAuthForm();
-      setConnectStatus("Complete the sign-in in your browser, then come back here...");
-      await openBrowserAsync(form.url);
-      const data = await linkUtilityToProperty(form.formUid);
-      setUtilities((u) => ({
-        ...u,
-        [key]: { amount: data.amount, provider: data.provider, dueDay: data.dueDay, meterUid: data.meterUid, auto: true, notify: u[key]?.notify ?? true },
-      }));
-      setSubStatus((s) => (s ? { ...s, linkedMeters: s.linkedMeters + 1 } : s));
-      Alert.alert("Connected", `${key} bill auto-filled from ${data.provider}: $${data.amount}.`);
-    } catch (e: any) {
-      Alert.alert("Connection failed", e?.message || "Could not connect to the provider.");
-    } finally {
-      setConnectingUtility(null);
-      setConnectStatus("");
-    }
+  // Per-utility billing: every connect goes through the wizard so each
+  // utility gets its own $20/mo subscription (pay → authorize → data back).
+  const handleLinkUtility = (key: UtilityKey) => {
+    router.push({ pathname: "/connect-utility", params: { utilityKey: key } });
   };
 
   const handleRefreshUtility = async (key: UtilityKey) => {
