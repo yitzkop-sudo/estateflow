@@ -96,3 +96,16 @@ export async function startUtilitySubscription(): Promise<{
     "/create-utility-subscription"
   );
 }
+
+/**
+ * Confirm a just-completed Stripe Checkout without waiting for webhooks.
+ * Activates the entitlement from Stripe directly and reports if it's live.
+ */
+export async function confirmUtilitySubscription(
+  sessionId?: string
+): Promise<{ active: boolean; alreadyActive?: boolean }> {
+  return apiPost<{ active: boolean; alreadyActive?: boolean }>(
+    "/confirm-utility-subscription",
+    sessionId ? { sessionId } : undefined
+  );
+}

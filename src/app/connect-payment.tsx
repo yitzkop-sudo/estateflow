@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -16,6 +16,7 @@ import {
 import { auth } from "../lib/firebase";
 import { openExternalUrl } from "../lib/openExternal";
 import {
+  confirmUtilitySubscription,
   getUtilitySubscriptionStatus,
   startUtilitySubscription,
   type UtilitySubStatus,
@@ -82,15 +83,18 @@ export default function ConnectPayment() {
   }, [goAuthorize, router]);
 
   // Watch for the new subscription so paying flows straight into step 3.
+  // Uses the confirm endpoint (verifies with Stripe directly) so a slow or
+  // missing webhook can never stall the flow.
   const startPayPoll = useCallback(() => {
     stopPoll();
     let tries = 0;
     pollRef.current = setInterval(async () => {
       tries += 1;
       try {
-        const s = await getUtilitySubscriptionStatus();
-        setSubStatus(s);
-        if (s?.active) {
+        const c = await confirmUtilitySubscription();
+        if (c?.active) {
+          const s = await getUtilitySubscriptionStatus().catch(() => null);
+          if (s) setSubStatus(s);
           goAuthorize();
           return;
         }
@@ -100,6 +104,23 @@ export default function ConnectPayment() {
       if (tries >= 60) stopPoll();
     }, 5000);
   }, [goAuthorize, stopPoll]);
+
+  // Returning from the Stripe tab (it opens outside the app) re-checks
+  // immediately instead of waiting for the next poll tick.
+  useFocusEffect(
+    useCallback(() => {
+      if (!paidPending || forwardedRef.current) return;
+      confirmUtilitySubscription()
+        .then(async (c) => {
+          if (c?.active) {
+            const s = await getUtilitySubscriptionStatus().catch(() => null);
+            if (s) setSubStatus(s);
+            goAuthorize();
+          }
+        })
+        .catch(() => {});
+    }, [paidPending, goAuthorize])
+  );
 
   const handlePay = async () => {
     setPaying(true);
@@ -135,13 +156,16 @@ export default function ConnectPayment() {
   const handlePaidDone = async () => {
     setPaying(true);
     try {
-      const s = await getUtilitySubscriptionStatus();
-      setSubStatus(s);
-      if (s?.active) {
+      const c = await confirmUtilitySubscription();
+      if (c?.active) {
+        const s = await getUtilitySubscriptionStatus().catch(() => null);
+        if (s) setSubStatus(s);
         goAuthorize();
       } else {
         Alert.alert("Not active yet", "We couldn't see an active subscription. If you just paid, wait a moment and try again.");
       }
+    } catch (e: any) {
+      Alert.alert("Check failed", e?.message || "Could not verify the payment. Try again.");
     } finally {
       setPaying(false);
     }

@@ -566,6 +566,62 @@ app.post("/create-utility-subscription", requireAuth, async (req, res) => {
   res.json({ url: session.url, alreadyActive: false });
 });
 
+// ─── Paid: confirm a just-completed checkout without waiting for webhooks ────
+// Webhooks can lag (or be misconfigured); the app calls this when the user
+// returns from Stripe so payment flows straight into authorization. It finds
+// the user's subscription via the estateflowUid metadata Stripe was given at
+// checkout (or a specific session id), activates the entitlement exactly like
+// the webhook would, and reports whether it's live yet.
+async function findActiveUtilitySub(stripe, uid) {
+  const found = await stripe.subscriptions.search({
+    query: `metadata['estateflowUid']:'${uid}'`,
+    limit: 10,
+  });
+  return (found.data || []).find((s) => s.status === "active" || s.status === "trialing") || null;
+}
+
+app.post("/confirm-utility-subscription", requireAuth, async (req, res) => {
+  const uid = req.uid;
+  const before = await getUtilityEntitlement(uid);
+  if (before.active) {
+    res.json({ active: true, alreadyActive: true });
+    return;
+  }
+  if (!stripeConfigured()) throw new ApiError(500, "Stripe is not configured.");
+  const stripe = stripeFactory(process.env.STRIPE_SECRET_KEY);
+  const sessionId = String(req.body?.sessionId || "").trim();
+  let sub = null;
+  if (sessionId) {
+    try {
+      const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["subscription"] });
+      const candidate = session.subscription && typeof session.subscription === "object" ? session.subscription : null;
+      if (
+        candidate &&
+        candidate.metadata?.estateflowUid === uid &&
+        (candidate.status === "active" || candidate.status === "trialing")
+      ) {
+        sub = candidate;
+      }
+    } catch (err) {
+      console.warn("Checkout session lookup failed:", err.message);
+    }
+  }
+  if (!sub) {
+    try {
+      sub = await findActiveUtilitySub(stripe, uid);
+    } catch (err) {
+      console.warn("Subscription search failed:", err.message);
+    }
+  }
+  if (!sub) {
+    res.json({ active: false });
+    return;
+  }
+  await setUtilitySubscription(uid, sub);
+  await syncMeterQuantity(uid);
+  res.json({ active: true });
+});
+
 // ─── Paid: current auto-sync subscription status + portal link ────────────────
 app.get("/utility-subscription-status", requireAuth, async (req, res) => {
   const uid = req.uid;

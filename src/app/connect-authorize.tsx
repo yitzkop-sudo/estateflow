@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -73,6 +73,20 @@ export default function ConnectAuthorize() {
   const atMeterCap =
     (subStatus?.meterLimit ?? 0) > 0 &&
     (subStatus?.linkedMeters ?? 0) >= (subStatus?.meterLimit ?? 0);
+
+  // Returning from the provider tab re-checks immediately instead of waiting
+  // for the next poll tick — coming back lands on finished data when ready.
+  useFocusEffect(
+    useCallback(() => {
+      const uid = formUidRef.current;
+      if (!uid || linkingRef.current) return;
+      getAuthFormStatus(uid)
+        .then((st) => {
+          if (st?.completed) runFinishLinking(uid);
+        })
+        .catch(() => {});
+    }, [authPending]) // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   const runFinishLinking = useCallback(
     async (uid: string | null) => {
