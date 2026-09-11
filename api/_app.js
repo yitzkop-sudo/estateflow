@@ -629,7 +629,7 @@ app.post("/confirm-utility-subscription", requireAuth, async (req, res) => {
   }
   if (!sub) {
     try {
-      let customerId = ent.ua?.stripeCustomerId || null;
+      let customerId = before.ua?.stripeCustomerId || null;
       if (!customerId) {
         const snap = await db.collection("users").doc(uid).get();
         customerId = snap.exists ? snap.data()?.stripeCustomerId || null : null;
