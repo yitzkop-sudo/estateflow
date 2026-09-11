@@ -168,10 +168,10 @@ exports.linkForProperty = async ({ formUid }) => {
   const bill = await fetchLatestBill(meterUids);
   if (!bill) throw new HttpsError("not-found", "No bills are available yet.");
   const amount = billAmount(bill);
-  if (!(amount > 0)) throw new HttpsError("not-found", "Could not determine the bill amount.");
+  if (!Number.isFinite(amount) || amount < 0) throw new HttpsError("not-found", "Could not determine the bill amount.");
   return {
     amount: amount.toFixed(2),
-    provider: bill.utility,
+    provider: bill.utility || "Unknown provider",
     dueDay: billDueDay(bill),
     meterUid: meterUids[0],
   };
@@ -184,10 +184,10 @@ exports.refreshMeter = async ({ meterUid }) => {
   const bill = await fetchLatestBill([meterUid]);
   if (!bill) throw new HttpsError("not-found", "No bills are available yet.");
   const amount = billAmount(bill);
-  if (!(amount > 0)) throw new HttpsError("not-found", "Could not determine the bill amount.");
+  if (!Number.isFinite(amount) || amount < 0) throw new HttpsError("not-found", "Could not determine the bill amount.");
   return {
     amount: amount.toFixed(2),
-    provider: bill.utility,
+    provider: bill.utility || "Unknown provider",
     dueDay: billDueDay(bill),
   };
 };

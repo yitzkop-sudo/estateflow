@@ -49,6 +49,7 @@ export default function ConnectAuthorize() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const linkingRef = useRef(false);
   const formUidRef = useRef<string | null>(null);
+  const autoTriesRef = useRef(0);
 
   const stopPoll = useCallback(() => {
     if (pollRef.current) {
@@ -132,7 +133,14 @@ export default function ConnectAuthorize() {
         try {
           const st = await getAuthFormStatus(uid);
           if (st?.completed) {
-            stopPoll();
+            // Cap automatic link attempts so a permanently-failing link
+            // can't retry forever — the manual button below always works.
+            if (autoTriesRef.current >= 3) {
+              stopPoll();
+              setError("Automatic linking gave up after 3 tries — tap below to retry manually.");
+              return;
+            }
+            autoTriesRef.current += 1;
             await runFinishLinking(uid);
             return;
           }
@@ -176,6 +184,7 @@ export default function ConnectAuthorize() {
       waitingForSignIn = true;
       setStatusMsg("Complete the sign-in in the tab that just opened — this screen finishes itself when you're done.");
       setAuthPending(true);
+      autoTriesRef.current = 0;
       startAuthPoll(formUidRef.current);
     } catch (e: any) {
       const msg = e?.message || "Could not connect to the provider.";
@@ -281,7 +290,10 @@ export default function ConnectAuthorize() {
             ) : (
               <TouchableOpacity
                 style={[styles.finishButton, connecting && { opacity: 0.6 }]}
-                onPress={() => runFinishLinking(formUidRef.current)}
+                onPress={() => {
+                  autoTriesRef.current = 0;
+                  runFinishLinking(formUidRef.current);
+                }}
                 disabled={connecting}
               >
                 {connecting ? (

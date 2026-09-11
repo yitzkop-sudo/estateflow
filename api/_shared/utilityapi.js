@@ -197,10 +197,12 @@ exports.linkForProperty = async ({ formUid }) => {
   const bill = await fetchLatestBill(meterUids);
   if (!bill) throw new ApiError(404, "No bills are available yet.");
   const amount = billAmount(bill);
-  if (!(amount > 0)) throw new ApiError(404, "Could not determine the bill amount.");
+  // $0 bills are real (credits, net metering, demo data) — only reject
+  // unreadable amounts so linking never fails on valid data.
+  if (!Number.isFinite(amount) || amount < 0) throw new ApiError(404, "Could not determine the bill amount.");
   return {
     amount: amount.toFixed(2),
-    provider: bill.utility,
+    provider: bill.utility || "Unknown provider",
     dueDay: billDueDay(bill),
     meterUid: meterUids[0],
   };
@@ -213,10 +215,10 @@ exports.refreshMeter = async ({ meterUid }) => {
   const bill = await fetchLatestBill([meterUid]);
   if (!bill) throw new ApiError(404, "No bills are available yet.");
   const amount = billAmount(bill);
-  if (!(amount > 0)) throw new ApiError(404, "Could not determine the bill amount.");
+  if (!Number.isFinite(amount) || amount < 0) throw new ApiError(404, "Could not determine the bill amount.");
   return {
     amount: amount.toFixed(2),
-    provider: bill.utility,
+    provider: bill.utility || "Unknown provider",
     dueDay: billDueDay(bill),
   };
 };
