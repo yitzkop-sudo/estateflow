@@ -290,7 +290,7 @@ export default function ConnectPayment() {
             ) : (
               <TouchableOpacity
                 style={[styles.payButton, paying && { opacity: 0.7 }]}
-                onPress={handlePay}
+                onPress={() => handlePay(false)}
                 disabled={paying}
               >
                 {paying ? (
