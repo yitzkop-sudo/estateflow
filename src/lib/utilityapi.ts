@@ -113,14 +113,15 @@ export async function getAuthFormStatus(formUid: string): Promise<AuthFormStatus
  * tagged to the right record. Already covered → billing portal instead.
  */
 export async function startUtilitySubscription(
-  utilityKey: string
+  utilityKey: string,
+  forceNew?: boolean
 ): Promise<{
   url: string;
   alreadyActive: boolean;
 }> {
   return apiPost<{ url: string; alreadyActive: boolean }>(
     "/create-utility-subscription",
-    { utilityKey }
+    forceNew ? { utilityKey, forceNew: true } : { utilityKey }
   );
 }
 

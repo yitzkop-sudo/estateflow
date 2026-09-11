@@ -79,6 +79,10 @@ export default function ConnectPayment() {
         const s = await getUtilitySubscriptionStatus().catch(() => null);
         if (s) {
           setSubStatus(s);
+          console.log(
+            "PAY diag:",
+            JSON.stringify({ utilityKey, covered: s.subscriptions?.[utilityKey]?.active ?? s.active })
+          );
         } else {
           setError("Could not load subscription status.");
         }
@@ -146,13 +150,13 @@ export default function ConnectPayment() {
     }, [paidPending, goAuthorize, utilityKey])
   );
 
-  const handlePay = async () => {
+  const handlePay = async (forceNew = false) => {
     setPaying(true);
     setError(null);
     try {
       let alreadyActive = false;
       const opened = await openExternalUrl(async () => {
-        const res = await startUtilitySubscription(utilityKey);
+        const res = await startUtilitySubscription(utilityKey, forceNew);
         alreadyActive = res.alreadyActive;
         if (alreadyActive) return "";
         return res.url;
@@ -266,6 +270,22 @@ export default function ConnectPayment() {
                   <Text style={styles.payButtonText}>Continue to authorize</Text>
                   <Feather name="arrow-right" size={16} color="#FFFFFF" style={{ marginLeft: 8 }} />
                 </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.payAgainButton}
+                  onPress={() =>
+                    Alert.alert(
+                      "Start another subscription?",
+                      `${utilityKey} is already covered. This starts a SECOND $20/mo subscription for it. Continue?`,
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Pay $20 again", onPress: () => handlePay(true) },
+                      ]
+                    )
+                  }
+                  disabled={paying}
+                >
+                  <Text style={styles.payAgainText}>Pay for {utilityKey} again ($20/mo extra)</Text>
+                </TouchableOpacity>
               </>
             ) : (
               <TouchableOpacity
@@ -334,6 +354,8 @@ const styles = StyleSheet.create({
   subscribedText: { flex: 1, color: "#6EE7B7", fontSize: 12, fontWeight: "600", lineHeight: 17 },
   confirmingRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(52,211,153,0.08)", borderRadius: 14, padding: 12, marginTop: 8, borderWidth: 1, borderColor: "rgba(52,211,153,0.25)" },
   confirmingText: { flex: 1, color: "#6EE7B7", fontSize: 12, fontWeight: "600", lineHeight: 17 },
+  payAgainButton: { alignItems: "center", padding: 10, marginTop: 2 },
+  payAgainText: { color: "#60A5FA", fontSize: 13, fontWeight: "700" },
   payButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#10B981", padding: 14, borderRadius: 16, marginTop: 8 },
   payButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "900" },
   checkButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#3B82F6", padding: 14, borderRadius: 16, marginTop: 8 },

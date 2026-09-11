@@ -570,7 +570,10 @@ app.post("/create-utility-subscription", requireAuth, async (req, res) => {
 
   const ent = await getUtilityEntitlement(uid);
 
-  if (keyCovered(ent, utilityKey) && ent.stripeCustomerId) {
+  // Already covered → billing portal (manage/cancel), unless the user
+  // explicitly asked for an additional subscription for this key.
+  const forceNew = req.body?.forceNew === true;
+  if (keyCovered(ent, utilityKey) && ent.stripeCustomerId && !forceNew) {
     const url = await createBillingPortal(stripe, ent.stripeCustomerId);
     res.json({ url, alreadyActive: true });
     return;
@@ -812,9 +815,13 @@ app.post("/create-utility-auth-form", requireAuth, async (req, res) => {
   const linked = await countLinkedMeters(uid);
   assertUnderMeterLimit(linked.count, meterLimit());
 
-  // Per-utility gate: this key must have its own active subscription.
+  // Per-utility gate: this key must have its own active subscription. The
+  // key is REQUIRED (no keyless path) so no client can bypass per-key payment.
   const utilityKey = normalizeUtilityKey(req.body?.utilityKey);
-  if (utilityKey) assertUtilityEntitlementForKey(ent, utilityKey);
+  if (!utilityKey) {
+    throw new ApiError(400, "Utility is required (Electric, Water, Gas, Oil, Sewer or Trash). Update the app and try again.");
+  }
+  assertUtilityEntitlementForKey(ent, utilityKey);
 
   const utilityUid = String(req.body?.utilityUid || "").trim();
   const data = await utilityApi.createAuthForm(utilityUid || null);
@@ -843,8 +850,12 @@ app.post("/link-utility-auto", requireAuth, async (req, res) => {
 
   // Per-utility gate: linking this key needs its own active subscription.
   // Each subscription is flat $20/mo, so no quantity syncing is needed.
+  // The key is REQUIRED (no keyless path) so no client can bypass payment.
   const utilityKey = normalizeUtilityKey(req.body?.utilityKey);
-  if (utilityKey) assertUtilityEntitlementForKey(ent, utilityKey);
+  if (!utilityKey) {
+    throw new ApiError(400, "Utility is required (Electric, Water, Gas, Oil, Sewer or Trash). Update the app and try again.");
+  }
+  assertUtilityEntitlementForKey(ent, utilityKey);
 
   const { count, meterUids } = await countLinkedMeters(uid);
   assertUnderMeterLimit(count, meterLimit());
