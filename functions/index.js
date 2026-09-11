@@ -412,8 +412,8 @@ exports.createUtilitySubscription = onCall({ region: REGION }, async (req) => {
       metadata: { estateflowUid: uid },
     },
     metadata: { estateflowUid: uid },
-    success_url: `${base}/portal.html?utility=subscribed&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${base}/portal.html?utility=canceled`,
+    success_url: `${base}/utility-return.html?utility=subscribed&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${base}/utility-return.html?utility=canceled`,
   });
 
   return { url: session.url, alreadyActive: false };
