@@ -107,18 +107,7 @@ export default function ConnectUtility() {
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Connect Provider</Text>
           </View>
-          <Text style={styles.headerSubtitle}>Step 1 of 3 — pick what to connect and who provides it.</Text>
-        </View>
-
-        <View style={styles.stepper}>
-          {["Provider", "Payment", "Authorize"].map((label, i) => (
-            <View key={label} style={styles.stepItem}>
-              <View style={[styles.stepDot, i === 0 && styles.stepDotNow]}>
-                <Text style={[styles.stepNum, i === 0 && styles.stepNumNow]}>{i + 1}</Text>
-              </View>
-              <Text style={[styles.stepLabel, i === 0 && styles.stepLabelOn]}>{label}</Text>
-            </View>
-          ))}
+          <Text style={styles.headerSubtitle}>Pick what to connect and who provides it.</Text>
         </View>
 
         <View style={styles.cardSection}>
@@ -231,14 +220,6 @@ const styles = StyleSheet.create({
   backBtn: { backgroundColor: "#1E293B", padding: SCREEN_WIDTH < 400 ? 8 : 10, borderRadius: SCREEN_WIDTH < 400 ? 8 : 10, marginRight: 12 },
   headerTitle: { color: "#FFFFFF", fontSize: SCREEN_WIDTH < 400 ? 24 : 28, fontWeight: "900", letterSpacing: 0.5 },
   headerSubtitle: { color: "#94A3B8", fontSize: SCREEN_WIDTH < 400 ? 12 : 14, marginTop: 8, lineHeight: 18 },
-  stepper: { flexDirection: "row", justifyContent: "space-between", backgroundColor: "rgba(15,23,42,0.9)", borderRadius: 18, paddingHorizontal: 16, paddingVertical: 12, borderWidth: 1, borderColor: "rgba(59,130,246,0.18)" },
-  stepItem: { alignItems: "center", gap: 4, flex: 1 },
-  stepDot: { width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(30,41,59,0.9)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(71,85,105,0.5)" },
-  stepDotNow: { backgroundColor: "#3B82F6", borderColor: "#3B82F6" },
-  stepNum: { color: "#64748B", fontSize: 11, fontWeight: "800" },
-  stepNumNow: { color: "#FFFFFF" },
-  stepLabel: { color: "#64748B", fontSize: 10, fontWeight: "700" },
-  stepLabelOn: { color: "#E2E8F0" },
   cardSection: { backgroundColor: "rgba(15,23,42,0.9)", borderRadius: 28, padding: SCREEN_WIDTH < 400 ? 16 : 20, borderWidth: 1, borderColor: "rgba(59,130,246,0.18)" },
   sectionTitle: { color: "#FFFFFF", fontSize: SCREEN_WIDTH < 400 ? 16 : 18, fontWeight: "900", marginBottom: 4 },
   sectionSubtitle: { color: "#94A3B8", fontSize: SCREEN_WIDTH < 400 ? 12 : 13 },

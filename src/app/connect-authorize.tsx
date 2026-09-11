@@ -203,22 +203,7 @@ export default function ConnectAuthorize() {
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Authorize</Text>
           </View>
-          <Text style={styles.headerSubtitle}>Step 3 of 3 — sign in, then you're done.</Text>
-        </View>
-
-        <View style={styles.stepper}>
-          {["Provider", "Payment", "Authorize"].map((label, i) => (
-            <View key={label} style={styles.stepItem}>
-              <View style={[styles.stepDot, i < 2 && styles.stepDotDone, i === 2 && styles.stepDotNow]}>
-                {i < 2 ? (
-                  <Feather name="check" size={10} color="#FFFFFF" />
-                ) : (
-                  <Text style={[styles.stepNum, i === 2 && styles.stepNumNow]}>{i + 1}</Text>
-                )}
-              </View>
-              <Text style={[styles.stepLabel, styles.stepLabelOn]}>{label}</Text>
-            </View>
-          ))}
+          <Text style={styles.headerSubtitle}>Sign in, then you're done.</Text>
         </View>
 
         {error ? (
@@ -315,15 +300,6 @@ const styles = StyleSheet.create({
   backBtn: { backgroundColor: "#1E293B", padding: SCREEN_WIDTH < 400 ? 8 : 10, borderRadius: SCREEN_WIDTH < 400 ? 8 : 10, marginRight: 12 },
   headerTitle: { color: "#FFFFFF", fontSize: SCREEN_WIDTH < 400 ? 24 : 28, fontWeight: "900", letterSpacing: 0.5 },
   headerSubtitle: { color: "#94A3B8", fontSize: SCREEN_WIDTH < 400 ? 12 : 14, marginTop: 8, lineHeight: 18 },
-  stepper: { flexDirection: "row", justifyContent: "space-between", backgroundColor: "rgba(15,23,42,0.9)", borderRadius: 18, paddingHorizontal: 16, paddingVertical: 12, borderWidth: 1, borderColor: "rgba(59,130,246,0.18)" },
-  stepItem: { alignItems: "center", gap: 4, flex: 1 },
-  stepDot: { width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(30,41,59,0.9)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(71,85,105,0.5)" },
-  stepDotDone: { backgroundColor: "#10B981", borderColor: "#10B981" },
-  stepDotNow: { backgroundColor: "#3B82F6", borderColor: "#3B82F6" },
-  stepNum: { color: "#64748B", fontSize: 11, fontWeight: "800" },
-  stepNumNow: { color: "#FFFFFF" },
-  stepLabel: { color: "#64748B", fontSize: 10, fontWeight: "700" },
-  stepLabelOn: { color: "#E2E8F0" },
   errorBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(239,68,68,0.10)", borderRadius: 14, padding: 12, borderWidth: 1, borderColor: "rgba(239,68,68,0.30)" },
   errorText: { flex: 1, color: "#FCA5A5", fontSize: 12, fontWeight: "600", lineHeight: 17 },
   cardSection: { backgroundColor: "rgba(15,23,42,0.9)", borderRadius: 28, padding: SCREEN_WIDTH < 400 ? 16 : 20, borderWidth: 1, borderColor: "rgba(59,130,246,0.18)" },
