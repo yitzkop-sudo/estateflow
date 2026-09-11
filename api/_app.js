@@ -580,8 +580,10 @@ async function findActiveUtilitySub(stripe, uid, customerId) {
   if (customerId) {
     try {
       const subs = await stripe.subscriptions.list({ customer: customerId, limit: 10, status: "all" });
-      const hit = (subs.data || []).find(isLive);
-      if (hit) return hit;
+      const all = subs.data || [];
+      const hit = all.find(isLive);
+      if (hit) return { sub: hit, checked: all.length };
+      return { sub: null, checked: all.length, searched: false };
     } catch (err) {
       console.warn("Customer subscription list failed:", err.message);
     }
@@ -591,7 +593,8 @@ async function findActiveUtilitySub(stripe, uid, customerId) {
     query: `metadata['estateflowUid']:'${uid}'`,
     limit: 10,
   });
-  return (found.data || []).find(isLive) || null;
+  const all = found.data || [];
+  return { sub: all.find(isLive) || null, checked: all.length, searched: true };
 }
 
 app.post("/confirm-utility-subscription", requireAuth, async (req, res) => {
@@ -605,6 +608,7 @@ app.post("/confirm-utility-subscription", requireAuth, async (req, res) => {
   const stripe = stripeFactory(process.env.STRIPE_SECRET_KEY);
   const sessionId = String(req.body?.sessionId || "").trim();
   let sub = null;
+  let detail = "no matching subscription found";
   if (sessionId) {
     try {
       const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["subscription"] });
@@ -615,9 +619,12 @@ app.post("/confirm-utility-subscription", requireAuth, async (req, res) => {
         (candidate.status === "active" || candidate.status === "trialing")
       ) {
         sub = candidate;
+      } else {
+        detail = "checkout session has no active subscription for this user yet";
       }
     } catch (err) {
       console.warn("Checkout session lookup failed:", err.message);
+      detail = "could not read the checkout session";
     }
   }
   if (!sub) {
@@ -627,13 +634,24 @@ app.post("/confirm-utility-subscription", requireAuth, async (req, res) => {
         const snap = await db.collection("users").doc(uid).get();
         customerId = snap.exists ? snap.data()?.stripeCustomerId || null : null;
       }
-      sub = await findActiveUtilitySub(stripe, uid, customerId);
+      if (!customerId) {
+        detail = "no Stripe customer on file for this user";
+      } else {
+        const found = await findActiveUtilitySub(stripe, uid, customerId);
+        sub = found.sub;
+        if (!sub) {
+          detail = found.searched
+            ? "subscription search found nothing for this user yet"
+            : `checked ${found.checked} subscription(s) on file, none active for this user`;
+        }
+      }
     } catch (err) {
       console.warn("Subscription lookup failed:", err.message);
+      detail = "subscription lookup failed";
     }
   }
   if (!sub) {
-    res.json({ active: false });
+    res.json({ active: false, detail });
     return;
   }
   await setUtilitySubscription(uid, sub);

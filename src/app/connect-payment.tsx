@@ -84,24 +84,42 @@ export default function ConnectPayment() {
 
   // Watch for the new subscription so paying flows straight into step 3.
   // Uses the confirm endpoint (verifies with Stripe directly) so a slow or
-  // missing webhook can never stall the flow.
+  // missing webhook can never stall the flow. Persistent backend errors stop
+  // the poll and surface themselves instead of spinning forever.
   const startPayPoll = useCallback(() => {
     stopPoll();
     let tries = 0;
+    let consecutiveErrors = 0;
+    let lastDetail = "";
     pollRef.current = setInterval(async () => {
       tries += 1;
       try {
         const c = await confirmUtilitySubscription();
+        consecutiveErrors = 0;
         if (c?.active) {
           const s = await getUtilitySubscriptionStatus().catch(() => null);
           if (s) setSubStatus(s);
           goAuthorize();
           return;
         }
-      } catch {
-        // keep polling through transient failures
+        lastDetail = c?.detail || "";
+      } catch (e: any) {
+        consecutiveErrors += 1;
+        lastDetail = e?.message || "request failed";
+        // Broken backend (stale deploy, missing env) → say so fast.
+        if (consecutiveErrors >= 3) {
+          stopPoll();
+          setError(`${lastDetail} — fix the API, then tap "I've completed payment" to retry.`);
+          return;
+        }
       }
-      if (tries >= 60) stopPoll();
+      if (tries >= 60) {
+        stopPoll();
+        setError(
+          `Payment not detected${lastDetail ? `: ${lastDetail}` : ""}. ` +
+            `If you paid, tap "I've completed payment" to retry.`
+        );
+      }
     }, 5000);
   }, [goAuthorize, stopPoll]);
 
@@ -161,6 +179,9 @@ export default function ConnectPayment() {
         const s = await getUtilitySubscriptionStatus().catch(() => null);
         if (s) setSubStatus(s);
         goAuthorize();
+      } else if (c?.detail) {
+        setError(`Not active yet: ${c.detail}`);
+        Alert.alert("Not active yet", c.detail);
       } else {
         Alert.alert("Not active yet", "We couldn't see an active subscription. If you just paid, wait a moment and try again.");
       }

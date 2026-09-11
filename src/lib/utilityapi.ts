@@ -103,8 +103,8 @@ export async function startUtilitySubscription(): Promise<{
  */
 export async function confirmUtilitySubscription(
   sessionId?: string
-): Promise<{ active: boolean; alreadyActive?: boolean }> {
-  return apiPost<{ active: boolean; alreadyActive?: boolean }>(
+): Promise<{ active: boolean; alreadyActive?: boolean; detail?: string }> {
+  return apiPost<{ active: boolean; alreadyActive?: boolean; detail?: string }>(
     "/confirm-utility-subscription",
     sessionId ? { sessionId } : undefined
   );
