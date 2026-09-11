@@ -237,14 +237,22 @@ export default function ConnectPayment() {
               )}
             </TouchableOpacity>
             {paidPending ? (
-              <TouchableOpacity
-                style={[styles.checkButton, paying && { opacity: 0.7 }]}
-                onPress={handlePaidDone}
-                disabled={paying}
-              >
-                <Feather name="check-circle" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
-                <Text style={styles.payButtonText}>I've completed payment</Text>
-              </TouchableOpacity>
+              <>
+                <View style={styles.confirmingRow}>
+                  <ActivityIndicator size="small" color="#34D399" />
+                  <Text style={styles.confirmingText}>
+                    Confirming your payment — moving on automatically.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.checkButton, paying && { opacity: 0.7 }]}
+                  onPress={handlePaidDone}
+                  disabled={paying}
+                >
+                  <Feather name="check-circle" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
+                  <Text style={styles.payButtonText}>I've completed payment</Text>
+                </TouchableOpacity>
+              </>
             ) : null}
           </View>
         )}
@@ -275,6 +283,8 @@ const styles = StyleSheet.create({
   priceLabel: { color: "#CBD5E1", fontSize: 14, fontWeight: "600" },
   priceValue: { color: "#FFFFFF", fontSize: 15, fontWeight: "900" },
   finePrint: { color: "#64748B", fontSize: 12, lineHeight: 17, marginVertical: 8 },
+  confirmingRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(52,211,153,0.08)", borderRadius: 14, padding: 12, marginTop: 8, borderWidth: 1, borderColor: "rgba(52,211,153,0.25)" },
+  confirmingText: { flex: 1, color: "#6EE7B7", fontSize: 12, fontWeight: "600", lineHeight: 17 },
   payButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#10B981", padding: 14, borderRadius: 16, marginTop: 8 },
   payButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "900" },
   checkButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#3B82F6", padding: 14, borderRadius: 16, marginTop: 8 },

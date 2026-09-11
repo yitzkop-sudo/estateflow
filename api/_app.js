@@ -572,12 +572,26 @@ app.post("/create-utility-subscription", requireAuth, async (req, res) => {
 // the user's subscription via the estateflowUid metadata Stripe was given at
 // checkout (or a specific session id), activates the entitlement exactly like
 // the webhook would, and reports whether it's live yet.
-async function findActiveUtilitySub(stripe, uid) {
+async function findActiveUtilitySub(stripe, uid, customerId) {
+  const isLive = (s) =>
+    (s.status === "active" || s.status === "trialing") && s.metadata?.estateflowUid === uid;
+  // Direct customer lookup first: strongly consistent, no search-index lag,
+  // so a subscription created seconds ago is visible immediately.
+  if (customerId) {
+    try {
+      const subs = await stripe.subscriptions.list({ customer: customerId, limit: 10, status: "all" });
+      const hit = (subs.data || []).find(isLive);
+      if (hit) return hit;
+    } catch (err) {
+      console.warn("Customer subscription list failed:", err.message);
+    }
+  }
+  // Fallback: metadata search (indexed, can lag a few seconds on new subs).
   const found = await stripe.subscriptions.search({
     query: `metadata['estateflowUid']:'${uid}'`,
     limit: 10,
   });
-  return (found.data || []).find((s) => s.status === "active" || s.status === "trialing") || null;
+  return (found.data || []).find(isLive) || null;
 }
 
 app.post("/confirm-utility-subscription", requireAuth, async (req, res) => {
@@ -608,9 +622,14 @@ app.post("/confirm-utility-subscription", requireAuth, async (req, res) => {
   }
   if (!sub) {
     try {
-      sub = await findActiveUtilitySub(stripe, uid);
+      let customerId = ent.ua?.stripeCustomerId || null;
+      if (!customerId) {
+        const snap = await db.collection("users").doc(uid).get();
+        customerId = snap.exists ? snap.data()?.stripeCustomerId || null : null;
+      }
+      sub = await findActiveUtilitySub(stripe, uid, customerId);
     } catch (err) {
-      console.warn("Subscription search failed:", err.message);
+      console.warn("Subscription lookup failed:", err.message);
     }
   }
   if (!sub) {
