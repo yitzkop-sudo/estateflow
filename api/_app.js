@@ -257,12 +257,13 @@ async function setPlanSubscription({ plan, email, subObj, uid = null }) {
 }
 
 /**
- * Report the linked-meter count to the per-meter price ($20/meter).
- * Supports both Stripe Billing-Meter prices (new Dashboard flow — usage is
- * reported via meter events) and legacy usage-record metered prices.
+ * Sync the subscription quantity to the linked-meter count ($20/meter).
+ * UTILITY_METER_PRICE_ID must be a FLAT recurring price (standard pricing,
+ * NOT metered/usage-based) so each meter bills $20/mo upfront — due today at
+ * checkout and prorated when meters are added mid-cycle.
  */
-async function reportMeterUsage(uid) {
-  const meterPriceId = process.env.UTILITY_METER_PRICE_ID || "";
+async function syncMeterQuantity(uid) {
+  const meterPriceId = (process.env.UTILITY_METER_PRICE_ID || "").trim();
   if (!meterPriceId || !stripeConfigured()) return;
   try {
     const ent = await getUtilityEntitlement(uid);
@@ -271,38 +272,12 @@ async function reportMeterUsage(uid) {
     const stripe = stripeFactory(process.env.STRIPE_SECRET_KEY);
     const sub = await stripe.subscriptions.retrieve(subId);
     const item = (sub.items?.data || []).find((i) => i.price?.id === meterPriceId);
-    if (!item) return; // subscription predates the meter add-on — nothing to bill
+    if (!item) return; // meter price not on this subscription — nothing to sync
     const { count } = await countLinkedMeters(uid);
-
-    const attachedMeterId = item.price?.recurring?.meter || null;
-    if (attachedMeterId && stripe.billing?.meterEvents) {
-      // Billing-Meters price → report a meter event against the customer.
-      let eventName = process.env.UTILITY_METER_EVENT_NAME || "utility_meters";
-      try {
-        const meter = await stripe.billing.meters.retrieve(attachedMeterId);
-        if (meter?.event_name) eventName = meter.event_name;
-      } catch { /* keep the default/env event name */ }
-      await stripe.billing.meterEvents.create({
-        event_name: eventName,
-        payload: {
-          value: count,
-          stripe_customer_id: sub.customer || ent.ua?.stripeCustomerId,
-        },
-      });
-    } else {
-      // Legacy usage-record metered price. With sum aggregation, "set"
-      // overwrites the period total with the current meter count; with
-      // last_during_period / max, each record wins on its own — no action.
-      const aggregate = item.price?.recurring?.aggregate_usage || "sum";
-      const useSet = aggregate === "sum";
-      await stripe.subscriptionItems.createUsageRecord(item.id, {
-        quantity: count,
-        timestamp: Math.floor(Date.now() / 1000),
-        ...(useSet ? { action: "set" } : {}),
-      });
-    }
+    if (item.quantity === count) return; // already correct
+    await stripe.subscriptionItems.update(item.id, { quantity: count });
   } catch (err) {
-    console.error("Meter usage report failed:", err.message);
+    console.error("Meter quantity sync failed:", err.message);
   }
 }
 
@@ -578,7 +553,8 @@ app.post("/create-utility-subscription", requireAuth, async (req, res) => {
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     customer: customerId,
-    line_items: [{ price: meterPriceId }],
+    // Flat $20/mo per meter, first meter included → $20.00 due today.
+    line_items: [{ price: meterPriceId, quantity: 1 }],
     subscription_data: {
       metadata: { estateflowUid: uid },
     },
@@ -646,8 +622,8 @@ app.post("/link-utility-auto", requireAuth, async (req, res) => {
   if (data.meterUid && !meterUids.has(String(data.meterUid))) {
     assertUnderMeterLimit(count + 1, meterLimit());
   }
-  // Bill the per-meter fee when a metered price is configured.
-  await reportMeterUsage(uid);
+  // Keep the $20/meter quantity in step with actually-linked meters.
+  await syncMeterQuantity(uid);
   res.json(data);
 });
 
@@ -661,6 +637,8 @@ app.post("/refresh-utility-auto", requireAuth, async (req, res) => {
   if (!meterUid) throw new ApiError(400, "Missing meterUid.");
 
   const data = await utilityApi.refreshMeter({ meterUid });
+  // Re-sync quantity here too so removed meters stop billing on next refresh.
+  await syncMeterQuantity(uid);
   res.json(data);
 });
 
