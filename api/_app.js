@@ -111,31 +111,22 @@ async function getUtilityEntitlement(uid) {
   const snap = await db.collection("users").doc(uid).get();
   const ua = snap.exists ? snap.data()?.utilityAuto || {} : {};
   const subs = { ...(ua.subs || {}) };
-  // Grandfather legacy single-subscription records (no per-key map): they
-  // covered everything, so they keep covering everything.
-  const legacy = !Object.keys(subs).length && !!ua.active && !!ua.stripeSubId;
-  const legacyActive =
-    legacy &&
-    (() => {
-      const end = ua.currentPeriodEnd?.toDate?.() || ua.currentPeriodEnd || null;
-      const endMs = end instanceof Date ? end.getTime() : typeof end === "number" ? end : null;
-      return !(endMs && endMs < Date.now());
-    })();
-  const activeKeys = UTILITY_KEYS.filter((k) => legacyActive || subRecordActive(subs[k]));
+  // No grandfathering: only explicit per-key subscriptions count. Old
+  // single-subscription records (pre-launch tests) cover nothing — each
+  // utility needs its own $20/mo subscription.
+  const activeKeys = UTILITY_KEYS.filter((k) => subRecordActive(subs[k]));
   return {
     active: activeKeys.length > 0,
     activeKeys,
     subs,
-    legacyActive: !!legacyActive,
     ua,
     stripeCustomerId: ua.stripeCustomerId || null,
   };
 }
 
-/** Is this utility key covered by its own active subscription (or legacy)? */
+/** Is this utility key covered by its own active subscription? */
 function keyCovered(ent, key) {
   if (!key || !UTILITY_KEYS.includes(key)) return false;
-  if (ent.legacyActive) return true;
   return subRecordActive(ent.subs?.[key]);
 }
 
@@ -143,7 +134,7 @@ function assertUtilityEntitlement(ent) {
   if (!ent.active) {
     throw new ApiError(
       403,
-      "Auto utility sync requires an active subscription. Connect your provider to continue ($20/meter/month), or enter utilities manually for free."
+      "Auto utility sync requires a subscription for this utility ($20/month each). Connect it to continue, or enter utilities manually for free."
     );
   }
 }
@@ -774,9 +765,7 @@ app.get("/utility-subscription-status", requireAuth, async (req, res) => {
   const subscriptions = {};
   for (const key of UTILITY_KEYS) {
     const rec = ent.subs?.[key];
-    if (ent.legacyActive) {
-      subscriptions[key] = { active: true, legacy: true, currentPeriodEnd: null };
-    } else if (rec) {
+    if (rec) {
       const end = rec.currentPeriodEnd?.toDate?.() || rec.currentPeriodEnd || null;
       subscriptions[key] = {
         active: subRecordActive(rec),
