@@ -198,11 +198,39 @@ function normalizeMeters(meters) {
   return arr.map((m) => (m && m.uid ? String(m.uid) : null)).filter(Boolean);
 }
 
+/** Meters for one authorization via the listing endpoint (fallback). */
+async function fetchMetersForAuth(authorizationUid) {
+  const data = await api(`/meters?authorizations=${encodeURIComponent(authorizationUid)}&limit=100`);
+  const raw = data.meters || [];
+  return Array.isArray(raw) ? raw : Object.values(raw);
+}
+
 exports.linkForProperty = async ({ formUid }) => {
   const auth = await waitForAuthorization(formUid);
   if (!auth) throw new ApiError(408, "Authorization was not completed. Please try again.");
-  const meterUids = normalizeMeters(auth.meters);
+  let meterUids = normalizeMeters(auth.meters);
+  if (meterUids.length === 0 && auth.uid) {
+    // The embedded meters field can be empty even when meters exist —
+    // fall back to the listing filtered by this authorization.
+    try {
+      meterUids = normalizeMeters(await fetchMetersForAuth(auth.uid));
+    } catch (e) {
+      console.warn("Meter fallback listing failed:", e.message);
+    }
+  }
   if (meterUids.length === 0) {
+    const raw = auth.meters;
+    const keys = raw && typeof raw === "object" ? Object.keys(raw).slice(0, 8) : [];
+    const first = Array.isArray(raw) ? raw[0] : raw?.[keys[0]];
+    console.warn(
+      "Empty meters normalize",
+      JSON.stringify({
+        authKeys: Object.keys(auth || {}),
+        metersType: Array.isArray(raw) ? "array" : typeof raw,
+        metersKeys: keys,
+        firstEntryKeys: first && typeof first === "object" ? Object.keys(first) : typeof first,
+      })
+    );
     throw new ApiError(404, "No utility meters were found for this account.");
   }
   await activateMeters(meterUids);
