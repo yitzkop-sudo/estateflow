@@ -139,7 +139,7 @@ export default function ConnectUtility() {
                 <Feather name="search" size={14} color="#64748B" />
                 <TextInput
                   style={styles.searchInput}
-                  placeholder="Search providers (e.g. JCP&L)"
+                      placeholder="Search providers (e.g. PG&E)"
                   placeholderTextColor="#64748B"
                   value={providerQuery}
                   onChangeText={setProviderQuery}

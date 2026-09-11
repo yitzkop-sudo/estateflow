@@ -120,23 +120,33 @@ exports.createAuthForm = async (utilityUid) => {
   }
 };
 
+/**
+ * Provider catalog for the in-app picker (UtilityID + display name, sorted).
+ * UtilityAPI v2 has no utilities-list endpoint, so this is curated from
+ * https://utilityapi.com/docs/utilities (see api/_shared/utilityapi.js).
+ */
+const SUPPORTED_UTILITIES = [
+  { uid: "AEPIM", name: "Indiana Michigan Power (AEP)" },
+  { uid: "BLUEWATER", name: "Bluewater Power" },
+  { uid: "CONSUMERSENERGY", name: "Consumers Energy" },
+  { uid: "DEMO", name: "Demonstration Utility (for testing)" },
+  { uid: "EPE", name: "El Paso Electric" },
+  { uid: "ESSEX", name: "Essex Powerlines" },
+  { uid: "EVRSRCMA", name: "Eversource Massachusetts" },
+  { uid: "LAKEFRONT", name: "Lakefront Utilities" },
+  { uid: "NATIONALGRID", name: "National Grid" },
+  { uid: "PCE", name: "WestLight Energy (PCE)" },
+  { uid: "PG&E", name: "Pacific Gas and Electric (PG&E)" },
+  { uid: "SCE", name: "Southern California Edison (SCE)" },
+  { uid: "SDG&E", name: "San Diego Gas & Electric (SDG&E)" },
+  { uid: "SoCalGas", name: "Southern California Gas (SoCalGas)" },
+  { uid: "SSMPUC", name: "PUC Distribution (SSMPUC)" },
+  { uid: "SWEPCO", name: "Southwestern Electric Power (SWEPCO)" },
+  { uid: "WELLAND", name: "Welland Hydro-Electric" },
+];
+
 /** Provider catalog for the in-app picker (uid + name, sorted). */
-exports.listUtilities = async () => {
-  const out = [];
-  let page = 1;
-  for (let i = 0; i < 5; i++) {
-    const data = await api(`/utilities?limit=200&page=${page}`);
-    const arr = data.utilities || data.data || [];
-    for (const u of arr) {
-      if (u && u.uid) out.push({ uid: String(u.uid), name: String(u.name || u.display_name || u.uid) });
-    }
-    const totalPages = data.pagination?.total_pages ?? data.total_pages ?? null;
-    if (typeof totalPages === "number" ? page >= totalPages : arr.length === 0) break;
-    page += 1;
-  }
-  out.sort((a, b) => a.name.localeCompare(b.name));
-  return out;
-};
+exports.listUtilities = async () => SUPPORTED_UTILITIES.map((u) => ({ ...u }));
 
 /**
  * Link a completed authorization to utility data for a property. Runs the full
