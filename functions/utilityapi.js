@@ -152,14 +152,19 @@ exports.listUtilities = async () => SUPPORTED_UTILITIES.map((u) => ({ ...u }));
  * Link a completed authorization to utility data for a property. Runs the full
  * UtilityAPI flow server-side and returns normalized bill data.
  */
+/** Authorizations may carry meters as an array OR a uid-keyed object. */
+function normalizeMeters(meters) {
+  const arr = Array.isArray(meters) ? meters : Object.values(meters || {});
+  return arr.map((m) => (m && m.uid ? String(m.uid) : null)).filter(Boolean);
+}
+
 exports.linkForProperty = async ({ formUid }) => {
   const auth = await waitForAuthorization(formUid);
   if (!auth) throw new HttpsError("aborted", "Authorization was not completed. Please try again.");
-  const meters = auth.meters || [];
-  if (meters.length === 0) {
+  const meterUids = normalizeMeters(auth.meters);
+  if (meterUids.length === 0) {
     throw new HttpsError("not-found", "No utility meters were found for this account.");
   }
-  const meterUids = meters.map((m) => m.uid);
   await activateMeters(meterUids);
   const ready = await waitForBills(meterUids);
   if (!ready) {

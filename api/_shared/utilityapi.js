@@ -173,7 +173,7 @@ exports.listUtilities = async () => listUtilities();
 async function checkAuthFormStatus(formUid) {
   const data = await api(`/authorizations?forms=${encodeURIComponent(formUid)}&include=meters`);
   const auth = data.authorizations?.[0];
-  return { completed: !!auth, meterCount: auth?.meters?.length || 0 };
+  return { completed: !!auth, meterCount: normalizeMeters(auth?.meters).length };
 }
 exports.checkAuthFormStatus = async ({ formUid }) => checkAuthFormStatus(formUid);
 
@@ -181,14 +181,19 @@ exports.checkAuthFormStatus = async ({ formUid }) => checkAuthFormStatus(formUid
  * Link a completed authorization to utility data for a property. Runs the full
  * UtilityAPI flow server-side and returns normalized bill data.
  */
+/** Authorizations may carry meters as an array OR a uid-keyed object. */
+function normalizeMeters(meters) {
+  const arr = Array.isArray(meters) ? meters : Object.values(meters || {});
+  return arr.map((m) => (m && m.uid ? String(m.uid) : null)).filter(Boolean);
+}
+
 exports.linkForProperty = async ({ formUid }) => {
   const auth = await waitForAuthorization(formUid);
   if (!auth) throw new ApiError(408, "Authorization was not completed. Please try again.");
-  const meters = auth.meters || [];
-  if (meters.length === 0) {
+  const meterUids = normalizeMeters(auth.meters);
+  if (meterUids.length === 0) {
     throw new ApiError(404, "No utility meters were found for this account.");
   }
-  const meterUids = meters.map((m) => m.uid);
   await activateMeters(meterUids);
   const ready = await waitForBills(meterUids);
   if (!ready) {
