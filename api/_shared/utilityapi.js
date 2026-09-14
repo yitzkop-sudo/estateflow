@@ -192,9 +192,17 @@ exports.checkAuthFormStatus = async ({ formUid }) => checkAuthFormStatus(formUid
  * Link a completed authorization to utility data for a property. Runs the full
  * UtilityAPI flow server-side and returns normalized bill data.
  */
-/** Authorizations may carry meters as an array OR a uid-keyed object. */
+/**
+ * Authorizations carry meters in any of these shapes: an array, a uid-keyed
+ * object, or a listing envelope `{ meters: [...], next: ... }` (this is what
+ * `include=meters` actually returns — the envelope, not the meters).
+ */
 function normalizeMeters(meters) {
-  const arr = Array.isArray(meters) ? meters : Object.values(meters || {});
+  let raw = meters;
+  if (raw && typeof raw === "object" && !Array.isArray(raw) && Array.isArray(raw.meters)) {
+    raw = raw.meters;
+  }
+  const arr = Array.isArray(raw) ? raw : Object.values(raw || {});
   return arr
     .map((m) => {
       const id = m && (m.uid || m.meter_uid || m.meterUid);
@@ -262,7 +270,7 @@ exports.linkForProperty = async ({ formUid }) => {
       notes.push(`single-get:${describeMetersField(single.meters)}`);
       if (m.length > 0) meterUids = m;
     } catch (e) {
-      notes.push("single-get:ERROR");
+      notes.push(`single-get:ERROR(${(e.message || "").slice(0, 50)})`);
       console.warn("Singular authorization fetch failed:", e.message);
     }
   }
@@ -278,7 +286,7 @@ exports.linkForProperty = async ({ formUid }) => {
           break;
         }
       } catch (e) {
-        notes.push(`${param}:ERROR`);
+        notes.push(`${param}:ERROR(${(e.message || "").slice(0, 50)})`);
         console.warn(`Meter fallback listing (${param}) failed:`, e.message);
       }
     }
