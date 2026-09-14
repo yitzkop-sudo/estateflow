@@ -145,9 +145,10 @@ export default function ConnectAuthorize() {
           if (st?.completed) {
             // Cap automatic link attempts so a permanently-failing link
             // can't retry forever — the manual button below always works.
+            // Never bury the specific error under the generic give-up text.
             if (autoTriesRef.current >= 3) {
               stopPoll();
-              setError("Automatic linking gave up after 3 tries — tap below to retry manually.");
+              setError((prev) => prev || "Automatic linking gave up after 3 tries — tap below to retry manually.");
               return;
             }
             autoTriesRef.current += 1;

@@ -284,6 +284,16 @@ exports.linkForProperty = async ({ formUid }) => {
     }
   }
   if (meterUids.length === 0) {
+    // Account-wide probe (no filters): distinguishes "this account sees zero
+    // meters at all" (token scope / visibility) from "filtering issue".
+    try {
+      const probe = await api("/meters?limit=1");
+      const raw = probe.meters || [];
+      const n = Array.isArray(raw) ? raw.length : Object.keys(raw).length;
+      notes.push(`unfiltered-probe:${n}`);
+    } catch (e) {
+      notes.push("unfiltered-probe:ERROR");
+    }
     console.warn("Meter resolution failed", JSON.stringify({ authKeys: Object.keys(auth || {}), notes }));
     throw new ApiError(404, `No utility meters were found for this account (${notes.join("; ")}).`);
   }
