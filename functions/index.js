@@ -410,6 +410,7 @@ exports.createUtilitySubscription = onCall({ region: REGION }, async (req) => {
     line_items: [{ price: meterPriceId }],
     subscription_data: {
       metadata: { estateflowUid: uid },
+      trial_period_days: 0,
     },
     metadata: { estateflowUid: uid },
     success_url: `${base}/utility-return.html?utility=subscribed&session_id={CHECKOUT_SESSION_ID}`,
