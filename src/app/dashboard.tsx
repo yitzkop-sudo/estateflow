@@ -901,6 +901,7 @@ export default function Dashboard() {
             <DrawerItem icon="bar-chart-2" label="Insights" onPress={() => { setMenuOpen(false); router.push("/insights"); }} />
             <DrawerItem icon="list" label="View Properties" onPress={openViewProperties} />
             <DrawerItem icon="tool" label="Maintenance" onPress={() => { setMenuOpen(false); router.push("/maintenance"); }} />
+            <DrawerItem icon="credit-card" label="Manage Subscriptions" onPress={() => { setMenuOpen(false); router.push("/subscriptions"); }} />
             <DrawerItem icon="log-out" label="Sign Out" onPress={handleLogout} />
           </View>
         </SafeAreaView>
