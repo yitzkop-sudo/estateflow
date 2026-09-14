@@ -849,10 +849,15 @@ export default function AddProperty() {
                     <Feather name="alert-triangle" size={14} color="#FBBF24" />
                     <Text style={[styles.connectBannerText, { color: "#FCD34D" }]}>Meter limit reached ({subStatus.linkedMeters}/{subStatus.meterLimit}). Remove a linked utility or manage your plan to add capacity. You can still enter utilities manually.</Text>
                   </View>
-                ) : (
+                ) : subStatus.linkedMeters > 0 ? (
                   <View style={styles.connectBanner}>
                     <Feather name="link" size={14} color="#34D399" />
                     <Text style={styles.connectBannerText}>Auto-sync is on: tap the link icon on a utility to pull your latest bill straight from the provider. ({subStatus.linkedMeters}/{subStatus.meterLimit} meters)</Text>
+                  </View>
+                ) : (
+                  <View style={styles.connectBanner}>
+                    <Feather name="link" size={14} color="#34D399" />
+                    <Text style={styles.connectBannerText}>Auto-sync is ready — connect a provider above and your bills will pull in automatically.</Text>
                   </View>
                 )
               ) : null}
