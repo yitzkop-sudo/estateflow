@@ -195,6 +195,10 @@ async function setUtilitySubscription(uid, stripeSub) {
     stripePriceId: stripeSub.items?.data?.[0]?.price?.id || null,
     status: status || "unknown",
     currentPeriodEnd: periodEnd ? admin.firestore.Timestamp.fromDate(periodEnd) : null,
+    cancelAtPeriodEnd: !!stripeSub.cancel_at_period_end,
+    cancelAt: stripeSub.cancel_at
+      ? admin.firestore.Timestamp.fromDate(new Date(stripeSub.cancel_at * 1000))
+      : null,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
   const usersRef = db.collection("users").doc(uid);
@@ -769,16 +773,21 @@ app.get("/utility-subscription-status", requireAuth, async (req, res) => {
   const linked = await countLinkedMeters(uid);
 
   const subscriptions = {};
+  const toIso = (v) => {
+    const d = v?.toDate?.() || v || null;
+    return d instanceof Date ? d.toISOString() : d || null;
+  };
   for (const key of UTILITY_KEYS) {
     const rec = ent.subs?.[key];
     if (rec) {
-      const end = rec.currentPeriodEnd?.toDate?.() || rec.currentPeriodEnd || null;
       subscriptions[key] = {
         active: subRecordActive(rec),
-        currentPeriodEnd: end instanceof Date ? end.toISOString() : end || null,
+        currentPeriodEnd: toIso(rec.currentPeriodEnd),
+        cancelAtPeriodEnd: !!rec.cancelAtPeriodEnd,
+        cancelAt: toIso(rec.cancelAt),
       };
     } else {
-      subscriptions[key] = { active: false, currentPeriodEnd: null };
+      subscriptions[key] = { active: false, currentPeriodEnd: null, cancelAtPeriodEnd: false, cancelAt: null };
     }
   }
 
@@ -791,6 +800,32 @@ app.get("/utility-subscription-status", requireAuth, async (req, res) => {
     linkedMeters: linked.count,
     subscriptions,
     activeKeys: ent.activeKeys,
+  });
+});
+
+// ─── Paid: cancel (or resume) one utility's subscription, in-app ─────────────
+// Canceling sets cancel_at_period_end so access runs to the paid-through date
+// instead of cutting off instantly. Resume clears it.
+app.post("/cancel-utility-subscription", requireAuth, async (req, res) => {
+  const uid = req.uid;
+  const utilityKey = normalizeUtilityKey(req.body?.utilityKey);
+  if (!utilityKey) throw new ApiError(400, "Missing utility (Electric, Water, Gas, Oil, Sewer or Trash).");
+  const resume = req.body?.resume === true;
+  const ent = await getUtilityEntitlement(uid);
+  const rec = ent.subs?.[utilityKey];
+  const subId = rec?.stripeSubId;
+  if (!subId) {
+    throw new ApiError(404, `No subscription found for ${utilityKey}.`);
+  }
+  if (!stripeConfigured()) throw new ApiError(500, "Stripe is not configured.");
+  const stripe = stripeFactory(process.env.STRIPE_SECRET_KEY);
+  const updated = await stripe.subscriptions.update(subId, { cancel_at_period_end: !resume });
+  await setUtilitySubscription(uid, updated);
+  const end = updated.current_period_end ? new Date(updated.current_period_end * 1000).toISOString() : null;
+  res.json({
+    active: updated.status === "active" || updated.status === "trialing",
+    cancelAtPeriodEnd: !!updated.cancel_at_period_end,
+    currentPeriodEnd: end,
   });
 });
 

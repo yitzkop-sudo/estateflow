@@ -10,6 +10,8 @@ export interface UtilityKeyStatus {
   active: boolean;
   legacy?: boolean;
   currentPeriodEnd: string | null;
+  cancelAtPeriodEnd?: boolean;
+  cancelAt?: string | null;
 }
 
 // Billing is per utility: one $20/mo subscription per utility key. Paying
@@ -123,6 +125,17 @@ export async function startUtilitySubscription(
     "/create-utility-subscription",
     forceNew ? { utilityKey, forceNew: true } : { utilityKey }
   );
+}
+
+/**
+ * Cancel one utility's subscription in-app (access runs to the paid-through
+ * date), or resume it with resume=true.
+ */
+export async function cancelUtilitySubscription(
+  utilityKey: string,
+  resume?: boolean
+): Promise<{ active: boolean; cancelAtPeriodEnd: boolean; currentPeriodEnd: string | null }> {
+  return apiPost("/cancel-utility-subscription", resume ? { utilityKey, resume: true } : { utilityKey });
 }
 
 /**

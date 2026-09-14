@@ -17,6 +17,7 @@ import {
 import { auth } from "../lib/firebase";
 import { openExternalUrl } from "../lib/openExternal";
 import {
+  cancelUtilitySubscription,
   confirmUtilitySubscription,
   getUtilitySubscriptionStatus,
   startUtilitySubscription,
@@ -52,6 +53,39 @@ export default function Subscriptions() {
   const [error, setError] = useState<string | null>(null);
   const [payingKey, setPayingKey] = useState<UtilityKey | null>(null);
   const [paidPendingKey, setPaidPendingKey] = useState<UtilityKey | null>(null);
+  const [cancellingKey, setCancellingKey] = useState<UtilityKey | null>(null);
+
+  const handleCancel = async (key: UtilityKey, resume: boolean) => {
+    setCancellingKey(key);
+    setError(null);
+    try {
+      await cancelUtilitySubscription(key, resume || undefined);
+      await load(false);
+      Alert.alert(
+        resume ? "Subscription kept" : "Subscription canceled",
+        resume
+          ? `${key} stays covered at $20/mo.`
+          : `${key} stays covered until the paid-through date, then stops. Linked meters keep working until then.`
+      );
+    } catch (e: any) {
+      const msg = e?.message || "Could not update the subscription.";
+      setError(msg);
+      Alert.alert("Billing", msg);
+    } finally {
+      setCancellingKey(null);
+    }
+  };
+
+  const confirmCancel = (key: UtilityKey) => {
+    Alert.alert(
+      `Cancel ${key}?`,
+      "Access runs to the paid-through date, then this utility stops syncing. You can resubscribe anytime.",
+      [
+        { text: "Keep it", style: "cancel" },
+        { text: "Cancel subscription", style: "destructive", onPress: () => handleCancel(key, false) },
+      ]
+    );
+  };
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPoll = useCallback(() => {
@@ -85,11 +119,10 @@ export default function Subscriptions() {
     load();
   }, [load, router]);
 
+  // Strict: without the per-key map we know nothing per key, so nothing
+  // shows covered (the server is the source of truth on every action).
   const covered = useCallback(
-    (key: string) => {
-      const subs = subStatus?.subscriptions;
-      return subs ? !!subs[key]?.active : !!subStatus?.active;
-    },
+    (key: string) => !!subStatus?.subscriptions?.[key]?.active,
     [subStatus]
   );
 
@@ -238,6 +271,8 @@ export default function Subscriptions() {
               const paying = payingKey === key;
               const waiting = paidPendingKey === key;
               const periodEnd = subStatus?.subscriptions?.[key]?.currentPeriodEnd;
+              const cancelAtEnd = !!subStatus?.subscriptions?.[key]?.cancelAtPeriodEnd;
+              const cancelling = cancellingKey === key;
               return (
                 <View key={key} style={styles.cardSection}>
                   <View style={styles.utilityRow}>
@@ -247,18 +282,37 @@ export default function Subscriptions() {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.utilityLabel}>{key}</Text>
                       <Text style={[styles.statusText, isCovered && styles.statusActive]}>
-                        {isCovered ? "Active · $20/mo" : "Not subscribed"}
-                        {isCovered && periodEnd
+                        {!isCovered
+                          ? "Not subscribed"
+                          : cancelAtEnd
+                            ? `Cancels ${periodEnd ? new Date(periodEnd).toLocaleDateString() : "soon"} · $20/mo until then`
+                            : "Active · $20/mo"}
+                        {isCovered && !cancelAtEnd && periodEnd
                           ? ` · renews ${new Date(periodEnd).toLocaleDateString()}`
                           : ""}
                       </Text>
                     </View>
-                    <View style={[styles.statusPill, isCovered ? styles.pillOn : styles.pillOff]}>
-                      <Text style={[styles.pillText, isCovered ? styles.pillTextOn : styles.pillTextOff]}>
-                        {isCovered ? "ON" : "OFF"}
+                    <View style={[styles.statusPill, isCovered && !cancelAtEnd ? styles.pillOn : styles.pillOff]}>
+                      <Text style={[styles.pillText, isCovered && !cancelAtEnd ? styles.pillTextOn : styles.pillTextOff]}>
+                        {isCovered && !cancelAtEnd ? "ON" : isCovered ? "ENDS" : "OFF"}
                       </Text>
                     </View>
                   </View>
+                  {isCovered ? (
+                    <TouchableOpacity
+                      style={[styles.cancelButton, cancelling && { opacity: 0.6 }]}
+                      onPress={() => (cancelAtEnd ? handleCancel(key, true) : confirmCancel(key))}
+                      disabled={cancelling}
+                    >
+                      {cancelling ? (
+                        <ActivityIndicator size="small" color="#F87171" />
+                      ) : (
+                        <Text style={styles.cancelText}>
+                          {cancelAtEnd ? "Keep subscription" : "Cancel subscription"}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  ) : null}
                   {waiting ? (
                     <View style={styles.waitingRow}>
                       <ActivityIndicator size="small" color="#34D399" />
@@ -322,6 +376,8 @@ const styles = StyleSheet.create({
   pillText: { fontSize: 11, fontWeight: "900" },
   pillTextOn: { color: "#34D399" },
   pillTextOff: { color: "#94A3B8" },
+  cancelButton: { alignItems: "center", justifyContent: "center", padding: 11, borderRadius: 14, marginTop: 12, backgroundColor: "rgba(239,68,68,0.08)", borderWidth: 1, borderColor: "rgba(239,68,68,0.30)" },
+  cancelText: { color: "#F87171", fontSize: 13, fontWeight: "800" },
   subscribeButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#10B981", padding: 13, borderRadius: 14, marginTop: 12 },
   subscribeText: { color: "#FFFFFF", fontSize: 14, fontWeight: "900" },
   waitingRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(52,211,153,0.08)", borderRadius: 14, padding: 12, marginTop: 12, borderWidth: 1, borderColor: "rgba(52,211,153,0.25)" },

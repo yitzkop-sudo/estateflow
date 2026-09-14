@@ -202,10 +202,10 @@ export default function ConnectPayment() {
     }
   };
 
-  // Per-utility coverage: this key needs its own subscription. Only fall back
-  // to the overall flag when the server sent no per-key map (old backend).
-  const keySubs = subStatus?.subscriptions;
-  const covered = keySubs ? !!keySubs[utilityKey]?.active : !!subStatus?.active;
+  // Per-utility coverage: this key needs its own subscription. Without the
+  // per-key map we know nothing per key, so nothing shows covered (the
+  // server re-verifies on every payment/connect action anyway).
+  const covered = !!subStatus?.subscriptions?.[utilityKey]?.active;
 
   return (
     <SafeAreaView style={styles.container}>
