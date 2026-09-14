@@ -195,7 +195,27 @@ exports.checkAuthFormStatus = async ({ formUid }) => checkAuthFormStatus(formUid
 /** Authorizations may carry meters as an array OR a uid-keyed object. */
 function normalizeMeters(meters) {
   const arr = Array.isArray(meters) ? meters : Object.values(meters || {});
-  return arr.map((m) => (m && m.uid ? String(m.uid) : null)).filter(Boolean);
+  return arr
+    .map((m) => {
+      const id = m && (m.uid || m.meter_uid || m.meterUid);
+      return id ? String(id) : null;
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Re-read the authorization until meters attach to it (they can lag seconds
+ * behind the authorization itself). Returns the latest auth object seen.
+ */
+async function waitForAuthorizationMeters(formUid, attempts = 20) {
+  let latest = null;
+  for (let i = 0; i < attempts; i++) {
+    const data = await api(`/authorizations?forms=${encodeURIComponent(formUid)}&include=meters`);
+    latest = data.authorizations?.[0] || null;
+    if (latest && normalizeMeters(latest.meters).length > 0) return latest;
+    await delay(3000);
+  }
+  return latest;
 }
 
 /** Meters for one authorization via the listing endpoint (fallback). */
@@ -206,9 +226,18 @@ async function fetchMetersForAuth(authorizationUid) {
 }
 
 exports.linkForProperty = async ({ formUid }) => {
-  const auth = await waitForAuthorization(formUid);
+  let auth = await waitForAuthorization(formUid);
   if (!auth) throw new ApiError(408, "Authorization was not completed. Please try again.");
   let meterUids = normalizeMeters(auth.meters);
+  if (meterUids.length === 0) {
+    // Meters can attach seconds after the authorization appears — poll
+    // briefly before concluding there are none.
+    const timed = await waitForAuthorizationMeters(formUid, 20);
+    if (timed) {
+      auth = timed;
+      meterUids = normalizeMeters(auth.meters);
+    }
+  }
   if (meterUids.length === 0 && auth.uid) {
     // The embedded meters field can be empty even when meters exist —
     // fall back to the listing filtered by this authorization.
@@ -231,7 +260,10 @@ exports.linkForProperty = async ({ formUid }) => {
         firstEntryKeys: first && typeof first === "object" ? Object.keys(first) : typeof first,
       })
     );
-    throw new ApiError(404, "No utility meters were found for this account.");
+    throw new ApiError(
+      404,
+      "No utility meters were found for this account (checked authorization meters and meter listing)."
+    );
   }
   await activateMeters(meterUids);
   const { ready, states } = await waitForBills(meterUids);
