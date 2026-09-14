@@ -429,7 +429,10 @@ app.post("/create-rent-checkout-session", requireAuth, async (req, res) => {
   }
 
   const feePercent = platformFeePercent();
-  const applicationFee = feePercent > 0 ? Math.min(Math.round((unitAmount * feePercent) / 100), unitAmount - 1) : undefined;
+  // Stripe requires application_fee_amount to be positive — a rounded-down 0
+  // must be omitted, never sent (it would fail the whole checkout).
+  const rawFee = feePercent > 0 ? Math.min(Math.round((unitAmount * feePercent) / 100), unitAmount - 1) : 0;
+  const applicationFee = rawFee > 0 ? rawFee : undefined;
   const stripe = stripeFactory(process.env.STRIPE_SECRET_KEY);
   const amountLabel = `$${Number(tenant.rentAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
   const description = `Rent for ${tenant.propertyName} (${tenant.tenantName}) — ${monthKey}`;
