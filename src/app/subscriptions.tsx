@@ -20,6 +20,7 @@ import {
   cancelUtilitySubscription,
   confirmUtilitySubscription,
   getUtilitySubscriptionStatus,
+  reconcileUtilitySubscriptions,
   startUtilitySubscription,
   type UtilitySubStatus,
 } from "../lib/utilityapi";
@@ -98,13 +99,19 @@ export default function Subscriptions() {
 
   useEffect(() => () => stopPoll(), [stopPoll]);
 
+  // Reconcile (verify against Stripe) on open/refresh so ghost "active"
+  // records from missed webhooks can't linger; fall back to plain status.
   const load = useCallback(async (showSpinner = true) => {
     if (showSpinner) setLoading(true);
     setError(null);
     try {
-      setSubStatus(await getUtilitySubscriptionStatus());
+      setSubStatus(await reconcileUtilitySubscriptions());
     } catch (e: any) {
-      setError(e?.message || "Could not load subscriptions.");
+      try {
+        setSubStatus(await getUtilitySubscriptionStatus());
+      } catch (e2: any) {
+        setError(e2?.message || e?.message || "Could not load subscriptions.");
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);

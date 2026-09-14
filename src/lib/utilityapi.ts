@@ -99,6 +99,15 @@ export async function getUtilitySubscriptionStatus(): Promise<UtilitySubStatus> 
   return apiGet<UtilitySubStatus>("/utility-subscription-status");
 }
 
+/**
+ * Re-verify every stored subscription against Stripe and heal dead records
+ * (e.g. cancels whose webhooks never arrived). Heavier than status — use on
+ * explicit screens, not hot paths.
+ */
+export async function reconcileUtilitySubscriptions(): Promise<UtilitySubStatus> {
+  return apiPost<UtilitySubStatus>("/reconcile-utility-subscriptions");
+}
+
 export interface AuthFormStatus {
   completed: boolean;
   meterCount: number;

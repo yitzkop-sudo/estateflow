@@ -182,12 +182,15 @@ async function createBillingPortal(stripe, customerId) {
   return session.url;
 }
 
-async function setUtilitySubscription(uid, stripeSub) {
+async function setUtilitySubscription(uid, stripeSub, utilityKeyHint) {
   if (!uid) return;
   const status = stripeSub.status;
   const active = status === "active" || status === "trialing";
   const periodEnd = stripeSub.current_period_end ? new Date(stripeSub.current_period_end * 1000) : null;
-  const key = normalizeUtilityKey(stripeSub.metadata?.utilityKey);
+  // Synthetic objects (healed dead subs) carry no metadata, so callers pass
+  // the key explicitly — otherwise healing would write the legacy record and
+  // leave the per-key ghost untouched.
+  const key = normalizeUtilityKey(stripeSub.metadata?.utilityKey) || normalizeUtilityKey(utilityKeyHint);
   const record = {
     active,
     stripeSubId: stripeSub.id,
@@ -688,7 +691,7 @@ app.post("/confirm-utility-subscription", requireAuth, async (req, res) => {
         if (live) {
           const stillActive = live.status === "active" || live.status === "trialing";
           if (!stillActive) {
-            await setUtilitySubscription(uid, live);
+            await setUtilitySubscription(uid, live, utilityKey);
             res.json({ active: false, healed: true });
             return;
           }
@@ -756,8 +759,7 @@ app.post("/confirm-utility-subscription", requireAuth, async (req, res) => {
 });
 
 // ─── Paid: current auto-sync subscription status + portal link ────────────────
-app.get("/utility-subscription-status", requireAuth, async (req, res) => {
-  const uid = req.uid;
+async function buildUtilityStatus(uid) {
   const ent = await getUtilityEntitlement(uid);
 
   let portalUrl = null;
@@ -791,7 +793,7 @@ app.get("/utility-subscription-status", requireAuth, async (req, res) => {
     }
   }
 
-  res.json({
+  return {
     active: ent.active,
     plan: ent.active ? ent.ua.plan || "utility-auto" : null,
     currentPeriodEnd: ent.currentPeriodEnd ? ent.currentPeriodEnd.toISOString() : null,
@@ -800,7 +802,51 @@ app.get("/utility-subscription-status", requireAuth, async (req, res) => {
     linkedMeters: linked.count,
     subscriptions,
     activeKeys: ent.activeKeys,
-  });
+  };
+}
+
+app.get("/utility-subscription-status", requireAuth, async (req, res) => {
+  res.json(await buildUtilityStatus(req.uid));
+});
+
+// ─── Paid: reconcile every stored subscription against Stripe ────────────────
+// Cancellations made outside the app (or missed webhooks) leave ghost "active"
+// records behind. This re-reads each one from Stripe and persists the truth,
+// so the app never shows coverage that no longer exists.
+app.post("/reconcile-utility-subscriptions", requireAuth, async (req, res) => {
+  const uid = req.uid;
+  if (!stripeConfigured()) throw new ApiError(500, "Stripe is not configured.");
+  const ent = await getUtilityEntitlement(uid);
+  const stripe = stripeFactory(process.env.STRIPE_SECRET_KEY);
+  const seen = new Set();
+  const check = async (subId, keyHint) => {
+    if (!subId || seen.has(subId)) return;
+    seen.add(subId);
+    try {
+      const live = await stripe.subscriptions.retrieve(subId);
+      await setUtilitySubscription(uid, live, keyHint);
+    } catch (err) {
+      if (err?.code === "resource_missing" || /no such subscription/i.test(err?.message || "")) {
+        await setUtilitySubscription(
+          uid,
+          {
+            status: "canceled",
+            id: subId,
+            customer: ent.ua?.stripeCustomerId || ent.stripeCustomerId || null,
+          },
+          keyHint
+        );
+      } else {
+        console.warn("Reconcile retrieve failed:", err.message);
+      }
+    }
+  };
+  for (const key of UTILITY_KEYS) {
+    const rec = ent.subs?.[key];
+    if (rec?.stripeSubId) await check(rec.stripeSubId, key);
+  }
+  if (ent.ua?.stripeSubId) await check(ent.ua.stripeSubId, null);
+  res.json(await buildUtilityStatus(uid));
 });
 
 // ─── Paid: cancel (or resume) one utility's subscription, in-app ─────────────
