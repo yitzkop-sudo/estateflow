@@ -189,11 +189,21 @@ async function waitForAuthorizationMeters(formUid, attempts = 20) {
   return latest;
 }
 
-/** Meters for one authorization via the listing endpoint (fallback). */
+/**
+ * Meters for one authorization via the listing endpoint (fallback).
+ * Tries both documented filter spellings — `authorizations` and
+ * `authorization_uid` — since docs use both across reference pages.
+ */
 async function fetchMetersForAuth(authorizationUid) {
-  const data = await api(`/meters?authorizations=${encodeURIComponent(authorizationUid)}&limit=100`);
-  const raw = data.meters || [];
-  return Array.isArray(raw) ? raw : Object.values(raw);
+  const raw = await fetchMetersForAuthFiltered("authorizations", authorizationUid);
+  if (raw.length > 0) return raw;
+  return fetchMetersForAuthFiltered("authorization_uid", authorizationUid);
+}
+
+async function fetchMetersForAuthFiltered(param, authorizationUid) {
+  const data = await api(`/meters?${param}=${encodeURIComponent(authorizationUid)}&limit=100`);
+  const list = data.meters || [];
+  return Array.isArray(list) ? list : Object.values(list);
 }
 
 exports.linkForProperty = async ({ formUid }) => {
@@ -227,7 +237,7 @@ exports.linkForProperty = async ({ formUid }) => {
         firstEntryKeys: first && typeof first === "object" ? Object.keys(first) : typeof first,
       })
     );
-    throw new HttpsError("not-found", "No utility meters were found for this account (checked authorization meters and meter listing).");
+    throw new HttpsError("not-found", "No utility meters were found for this account (authorization meters empty, meter listing empty).");
   }
   await activateMeters(meterUids);
   const { ready, states } = await waitForBills(meterUids);
