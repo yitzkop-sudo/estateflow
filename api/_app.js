@@ -611,8 +611,6 @@ app.post("/create-utility-subscription", requireAuth, async (req, res) => {
     line_items: [{ price: meterPriceId, quantity: 1 }],
     subscription_data: {
       metadata: { estateflowUid: uid, utilityKey },
-      // Explicitly disable any trial period from the price so $20 is charged upfront.
-      trial_period_days: 0,
     },
     metadata: { estateflowUid: uid, utilityKey },
     success_url: `${base}/utility-return.html?utility=subscribed&session_id={CHECKOUT_SESSION_ID}`,
