@@ -194,50 +194,64 @@ async function waitForAuthorizationMeters(formUid, attempts = 20) {
  * Tries both documented filter spellings — `authorizations` and
  * `authorization_uid` — since docs use both across reference pages.
  */
-async function fetchMetersForAuth(authorizationUid) {
-  const raw = await fetchMetersForAuthFiltered("authorizations", authorizationUid);
-  if (raw.length > 0) return raw;
-  return fetchMetersForAuthFiltered("authorization_uid", authorizationUid);
-}
-
 async function fetchMetersForAuthFiltered(param, authorizationUid) {
   const data = await api(`/meters?${param}=${encodeURIComponent(authorizationUid)}&limit=100`);
   const list = data.meters || [];
   return Array.isArray(list) ? list : Object.values(list);
 }
 
+/** Short structural description of a meters field (no private data). */
+function describeMetersField(raw) {
+  if (Array.isArray(raw)) return `array[${raw.length}]`;
+  if (raw && typeof raw === "object") {
+    return `object{${Object.keys(raw).slice(0, 8).join(",")}}`;
+  }
+  return String(typeof raw);
+}
+
 exports.linkForProperty = async ({ formUid }) => {
   let auth = await waitForAuthorization(formUid);
   if (!auth) throw new HttpsError("aborted", "Authorization was not completed. Please try again.");
+  const notes = [];
   let meterUids = normalizeMeters(auth.meters);
+  notes.push(`embedded:${describeMetersField(auth.meters)}`);
   if (meterUids.length === 0) {
     const timed = await waitForAuthorizationMeters(formUid, 20);
     if (timed) {
       auth = timed;
       meterUids = normalizeMeters(auth.meters);
+      notes.push(`re-read:${describeMetersField(auth.meters)}`);
     }
   }
   if (meterUids.length === 0 && auth.uid) {
     try {
-      meterUids = normalizeMeters(await fetchMetersForAuth(auth.uid));
+      const single = await api(`/authorizations/${encodeURIComponent(auth.uid)}`);
+      const m = normalizeMeters(single.meters);
+      notes.push(`single-get:${describeMetersField(single.meters)}`);
+      if (m.length > 0) meterUids = m;
     } catch (e) {
-      console.warn("Meter fallback listing failed:", e.message);
+      notes.push("single-get:ERROR");
+      console.warn("Singular authorization fetch failed:", e.message);
+    }
+  }
+  if (meterUids.length === 0 && auth.uid) {
+    for (const param of ["authorizations", "authorization_uid"]) {
+      try {
+        const m = normalizeMeters(await fetchMetersForAuthFiltered(param, auth.uid));
+        notes.push(`${param}:${m.length}`);
+        if (m.length > 0) {
+          meterUids = m;
+          break;
+        }
+      } catch (e) {
+        notes.push(`${param}:ERROR`);
+        console.warn(`Meter fallback listing (${param}) failed:`, e.message);
+      }
     }
   }
   if (meterUids.length === 0) {
-    const raw = auth.meters;
-    const keys = raw && typeof raw === "object" ? Object.keys(raw).slice(0, 8) : [];
-    const first = Array.isArray(raw) ? raw[0] : raw?.[keys[0]];
-    console.warn(
-      "Empty meters normalize",
-      JSON.stringify({
-        authKeys: Object.keys(auth || {}),
-        metersType: Array.isArray(raw) ? "array" : typeof raw,
-        metersKeys: keys,
-        firstEntryKeys: first && typeof first === "object" ? Object.keys(first) : typeof first,
-      })
-    );
-    throw new HttpsError("not-found", "No utility meters were found for this account (authorization meters empty, meter listing empty).");
+    console.warn("Meter resolution failed", JSON.stringify({ authKeys: Object.keys(auth || {}), notes }));
+    throw new HttpsError("not-found", `No utility meters were found for this account (${notes.join("; ")}).`);
   }
   await activateMeters(meterUids);
   const { ready, states } = await waitForBills(meterUids);
