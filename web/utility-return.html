@@ -29,12 +29,16 @@
       var params = new URLSearchParams(window.location.search);
       // Clean the URL so a refresh doesn't replay anything.
       window.history.replaceState({}, "", window.location.pathname);
-      if (params.get("utility") === "canceled") {
+      if (params.get("utility") === "canceled" || params.get("billing") === "canceled") {
         document.getElementById("icon").textContent = "!";
         document.getElementById("icon").classList.add("cancel");
-        document.getElementById("title").textContent = "Payment canceled";
-        document.getElementById("text").textContent = "No money was charged. Return to the EstateFlow app whenever you're ready.";
-        document.title = "Payment Canceled — EstateFlow";
+        document.getElementById("title").textContent = "Canceled";
+        document.getElementById("text").textContent = "Nothing was changed. Return to the EstateFlow app whenever you're ready.";
+        document.title = "Canceled — EstateFlow";
+      } else if (params.get("billing") === "setup") {
+        document.getElementById("title").textContent = "Card saved";
+        document.getElementById("text").textContent = "Your card was added to your billing account. Return to the EstateFlow app — it is ready to use.";
+        document.title = "Card Saved — EstateFlow";
       }
       function goBack() {
         // Works when this tab was opened by the app (web popup flow) — the

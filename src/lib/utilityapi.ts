@@ -147,6 +147,79 @@ export async function cancelUtilitySubscription(
   return apiPost("/cancel-utility-subscription", resume ? { utilityKey, resume: true } : { utilityKey });
 }
 
+export interface BillingCard {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number | null;
+  expYear: number | null;
+  isDefault: boolean;
+}
+
+export interface BillingProfile {
+  name: string;
+  email: string;
+  phone: string;
+  address: {
+    line1: string;
+    line2: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+  };
+}
+
+export interface BillingInvoice {
+  id: string;
+  number: string;
+  description: string;
+  amountDue: number;
+  amountPaid: number;
+  currency: string;
+  status: string;
+  created: string | null;
+  hostedUrl: string | null;
+  pdfUrl: string | null;
+}
+
+/** Saved cards on the user's Stripe customer record. */
+export async function getBillingPaymentMethods(): Promise<{ methods: BillingCard[] }> {
+  return apiGet<{ methods: BillingCard[] }>("/billing-payment-methods");
+}
+
+/** Make one of the saved cards the default for invoices. */
+export async function setDefaultBillingCard(paymentMethodId: string): Promise<{ ok: boolean }> {
+  return apiPost("/billing-payment-methods/default", { paymentMethodId });
+}
+
+/** Remove a saved card. */
+export async function detachBillingCard(paymentMethodId: string): Promise<{ ok: boolean }> {
+  return apiPost("/billing-payment-methods/detach", { paymentMethodId });
+}
+
+/** Hosted card-collection page (Setup mode — no charge) for adding a card. */
+export async function startCardSetup(): Promise<{ url: string }> {
+  return apiPost<{ url: string }>("/billing-payment-methods/setup");
+}
+
+/** Billing name / contact / address on the Stripe customer record. */
+export async function getBillingProfile(): Promise<BillingProfile> {
+  return apiGet<BillingProfile>("/billing-profile");
+}
+
+/** Update billing name / contact / address. */
+export async function updateBillingProfile(
+  patch: Partial<Omit<BillingProfile, "address">> & { address?: Partial<BillingProfile["address"]> }
+): Promise<{ ok: boolean }> {
+  return apiPost("/billing-profile", patch);
+}
+
+/** Recent invoices with receipt links. */
+export async function getBillingInvoices(limit = 10): Promise<{ invoices: BillingInvoice[] }> {
+  return apiGet<{ invoices: BillingInvoice[] }>(`/billing-invoices?limit=${limit}`);
+}
+
 /**
  * Confirm a just-completed Stripe Checkout without waiting for webhooks.
  * Activates the entitlement from Stripe directly and reports if THIS

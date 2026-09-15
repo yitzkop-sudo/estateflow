@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -19,9 +20,19 @@ import { openExternalUrl } from "../lib/openExternal";
 import {
   cancelUtilitySubscription,
   confirmUtilitySubscription,
+  detachBillingCard,
+  getBillingInvoices,
+  getBillingPaymentMethods,
+  getBillingProfile,
   getUtilitySubscriptionStatus,
   reconcileUtilitySubscriptions,
+  setDefaultBillingCard,
+  startCardSetup,
   startUtilitySubscription,
+  updateBillingProfile,
+  type BillingCard,
+  type BillingInvoice,
+  type BillingProfile,
   type UtilitySubStatus,
 } from "../lib/utilityapi";
 
@@ -55,6 +66,46 @@ export default function Subscriptions() {
   const [payingKey, setPayingKey] = useState<UtilityKey | null>(null);
   const [paidPendingKey, setPaidPendingKey] = useState<UtilityKey | null>(null);
   const [cancellingKey, setCancellingKey] = useState<UtilityKey | null>(null);
+  const [cards, setCards] = useState<BillingCard[] | null>(null);
+  const [profile, setProfile] = useState<BillingProfile | null>(null);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [draft, setDraft] = useState<BillingProfile | null>(null);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [invoices, setInvoices] = useState<BillingInvoice[] | null>(null);
+  const [billingLoading, setBillingLoading] = useState(true);
+  const [addingCard, setAddingCard] = useState(false);
+  const [cardBusyId, setCardBusyId] = useState<string | null>(null);
+
+  const hasBillingAccount = cards !== null || profile !== null || invoices !== null;
+
+  const isNoAccount = (e: any) => /no billing account/i.test(e?.message || "");
+
+  const loadBilling = useCallback(async () => {
+    setBillingLoading(true);
+    try {
+      const [c, p, inv] = await Promise.all([
+        getBillingPaymentMethods().catch((e) => {
+          if (!isNoAccount(e)) throw e;
+          return null;
+        }),
+        getBillingProfile().catch((e) => {
+          if (!isNoAccount(e)) throw e;
+          return null;
+        }),
+        getBillingInvoices(10).catch((e) => {
+          if (!isNoAccount(e)) throw e;
+          return null;
+        }),
+      ]);
+      setCards(c?.methods ?? []);
+      setProfile(p);
+      setInvoices(inv?.invoices ?? []);
+    } catch (e: any) {
+      setError(e?.message || "Could not load billing info.");
+    } finally {
+      setBillingLoading(false);
+    }
+  }, []);
 
   const handleCancel = async (key: UtilityKey, resume: boolean) => {
     setCancellingKey(key);
@@ -124,7 +175,133 @@ export default function Subscriptions() {
       return;
     }
     load();
-  }, [load, router]);
+    loadBilling();
+  }, [load, loadBilling, router]);
+
+  const reloadAll = useCallback(
+    (showSpinner = false) => {
+      load(showSpinner);
+      loadBilling();
+    },
+    [load, loadBilling]
+  );
+
+  const handleAddCard = async () => {
+    setAddingCard(true);
+    setError(null);
+    try {
+      const before = cards?.length ?? 0;
+      const opened = await openExternalUrl(async () => (await startCardSetup()).url);
+      if (!opened) {
+        setError("The tab was blocked. Allow popups for this site and try again.");
+        return;
+      }
+      // The new card lands a few seconds after setup completes — poll briefly.
+      for (let i = 0; i < 12; i++) {
+        await new Promise((r) => setTimeout(r, 5000));
+        try {
+          const c = await getBillingPaymentMethods();
+          setCards(c.methods);
+          if (c.methods.length !== before) break;
+        } catch {
+          break;
+        }
+      }
+      loadBilling();
+    } catch (e: any) {
+      const msg = e?.message || "Could not start card setup.";
+      setError(msg);
+      Alert.alert("Add card", msg);
+    } finally {
+      setAddingCard(false);
+    }
+  };
+
+  const handleSetDefault = async (id: string) => {
+    setCardBusyId(id);
+    try {
+      await setDefaultBillingCard(id);
+      await loadBilling();
+    } catch (e: any) {
+      const msg = e?.message || "Could not set default card.";
+      setError(msg);
+      Alert.alert("Payment methods", msg);
+    } finally {
+      setCardBusyId(null);
+    }
+  };
+
+  const handleDetach = (card: BillingCard) => {
+    Alert.alert(
+      "Remove card?",
+      `${card.brand} •••• ${card.last4} will be removed.${card.isDefault ? " It is the default card." : ""}`,
+      [
+        { text: "Keep it", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            setCardBusyId(card.id);
+            try {
+              await detachBillingCard(card.id);
+              await loadBilling();
+            } catch (e: any) {
+              const msg = e?.message || "Could not remove card.";
+              setError(msg);
+              Alert.alert("Payment methods", msg);
+            } finally {
+              setCardBusyId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleSaveProfile = async () => {
+    if (!draft) return;
+    setSavingProfile(true);
+    try {
+      await updateBillingProfile({
+        name: draft.name,
+        email: draft.email,
+        phone: draft.phone,
+        address: { ...draft.address },
+      });
+      setEditingProfile(false);
+      await loadBilling();
+      Alert.alert("Billing information", "Saved.");
+    } catch (e: any) {
+      const msg = e?.message || "Could not save billing information.";
+      setError(msg);
+      Alert.alert("Billing information", msg);
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handleOpenInvoice = async (inv: BillingInvoice) => {
+    const url = inv.hostedUrl || inv.pdfUrl;
+    if (!url) {
+      Alert.alert("Receipt", "No receipt link available for this invoice yet.");
+      return;
+    }
+    try {
+      const opened = await openExternalUrl(async () => url);
+      if (!opened) setError("The tab was blocked. Allow popups for this site and try again.");
+    } catch (e: any) {
+      setError(e?.message || "Could not open the receipt.");
+    }
+  };
+
+  const money = (cents: number, currency: string) => {
+    const v = (cents || 0) / 100;
+    return currency && currency.toLowerCase() !== "usd"
+      ? `$${v.toFixed(2)} ${currency.toUpperCase()}`
+      : `$${v.toFixed(2)}`;
+  };
+
+  const brandName = (b: string) => (b ? b.charAt(0).toUpperCase() + b.slice(1) : "Card");
 
   // Strict: without the per-key map we know nothing per key, so nothing
   // shows covered (the server is the source of truth on every action).
@@ -345,6 +522,253 @@ export default function Subscriptions() {
               );
             })}
 
+            {/* ── Payment methods ── */}
+            <View style={styles.cardSection}>
+              <View style={styles.sectionHeadRow}>
+                <Text style={styles.sectionTitle}>Payment methods</Text>
+                {hasBillingAccount ? (
+                  <TouchableOpacity
+                    style={[styles.addButton, addingCard && { opacity: 0.6 }]}
+                    onPress={handleAddCard}
+                    disabled={addingCard}
+                  >
+                    {addingCard ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <Feather name="plus" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+                        <Text style={styles.addButtonText}>Add card</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              {billingLoading ? (
+                <ActivityIndicator size="small" color="#3B82F6" style={{ marginTop: 8 }} />
+              ) : !hasBillingAccount ? (
+                <Text style={styles.finePrintLeft}>
+                  Billing appears here after your first subscription — cards, receipts and billing details included.
+                </Text>
+              ) : (cards || []).length === 0 ? (
+                <Text style={styles.finePrintLeft}>No saved cards yet — add one to speed up future checkouts.</Text>
+              ) : (
+                (cards || []).map((card) => {
+                  const busy = cardBusyId === card.id;
+                  return (
+                    <View key={card.id} style={styles.methodRow}>
+                      <View style={styles.methodIcon}>
+                        <Feather name="credit-card" size={16} color="#60A5FA" />
+                      </View>
+                      <TouchableOpacity
+                        style={{ flex: 1 }}
+                        onPress={() => {
+                          if (!card.isDefault && !busy) handleSetDefault(card.id);
+                        }}
+                        disabled={busy || card.isDefault}
+                      >
+                        <Text style={styles.methodTitle}>
+                          {brandName(card.brand)} •••• {card.last4}
+                        </Text>
+                        <Text style={styles.methodSub}>
+                          Exp {card.expMonth || "–"}/{card.expYear || "–"}
+                          {card.isDefault ? " · Default" : " · Tap to make default"}
+                        </Text>
+                      </TouchableOpacity>
+                      {busy ? (
+                        <ActivityIndicator size="small" color="#F87171" />
+                      ) : (
+                        <TouchableOpacity onPress={() => handleDetach(card)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <Feather name="trash-2" size={16} color="#F87171" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  );
+                })
+              )}
+            </View>
+
+            {/* ── Billing information ── */}
+            <View style={styles.cardSection}>
+              <View style={styles.sectionHeadRow}>
+                <Text style={styles.sectionTitle}>Billing information</Text>
+                {profile && !editingProfile ? (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setDraft({ ...profile, address: { ...profile.address } });
+                      setEditingProfile(true);
+                    }}
+                  >
+                    <Text style={styles.editLink}>Edit</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              {billingLoading ? (
+                <ActivityIndicator size="small" color="#3B82F6" style={{ marginTop: 8 }} />
+              ) : !profile ? (
+                <Text style={styles.finePrintLeft}>
+                  {hasBillingAccount ? "Could not load billing details." : "Billing appears here after your first subscription."}
+                </Text>
+              ) : editingProfile && draft ? (
+                <>
+                  <Text style={styles.fieldLabel}>Name</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={draft.name}
+                    onChangeText={(v) => setDraft({ ...draft, name: v })}
+                    placeholder="Full name"
+                    placeholderTextColor="#64748B"
+                  />
+                  <Text style={styles.fieldLabel}>Email</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={draft.email}
+                    onChangeText={(v) => setDraft({ ...draft, email: v })}
+                    placeholder="billing@email.com"
+                    placeholderTextColor="#64748B"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                  <Text style={styles.fieldLabel}>Phone</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={draft.phone}
+                    onChangeText={(v) => setDraft({ ...draft, phone: v })}
+                    placeholder="+1 …"
+                    placeholderTextColor="#64748B"
+                    keyboardType="phone-pad"
+                  />
+                  <Text style={styles.fieldLabel}>Street</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={draft.address.line1}
+                    onChangeText={(v) => setDraft({ ...draft, address: { ...draft.address, line1: v } })}
+                    placeholder="Street address"
+                    placeholderTextColor="#64748B"
+                  />
+                  <View style={styles.fieldRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.fieldLabel}>City</Text>
+                      <TextInput
+                        style={styles.fieldInput}
+                        value={draft.address.city}
+                        onChangeText={(v) => setDraft({ ...draft, address: { ...draft.address, city: v } })}
+                        placeholder="City"
+                        placeholderTextColor="#64748B"
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.fieldLabel}>State</Text>
+                      <TextInput
+                        style={styles.fieldInput}
+                        value={draft.address.state}
+                        onChangeText={(v) => setDraft({ ...draft, address: { ...draft.address, state: v } })}
+                        placeholder="State"
+                        placeholderTextColor="#64748B"
+                      />
+                    </View>
+                  </View>
+                  <View style={styles.fieldRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.fieldLabel}>ZIP</Text>
+                      <TextInput
+                        style={styles.fieldInput}
+                        value={draft.address.postalCode}
+                        onChangeText={(v) => setDraft({ ...draft, address: { ...draft.address, postalCode: v } })}
+                        placeholder="ZIP"
+                        placeholderTextColor="#64748B"
+                        keyboardType="numbers-and-punctuation"
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.fieldLabel}>Country</Text>
+                      <TextInput
+                        style={styles.fieldInput}
+                        value={draft.address.country}
+                        onChangeText={(v) => setDraft({ ...draft, address: { ...draft.address, country: v } })}
+                        placeholder="US"
+                        placeholderTextColor="#64748B"
+                        autoCapitalize="characters"
+                      />
+                    </View>
+                  </View>
+                  <View style={styles.editActions}>
+                    <TouchableOpacity
+                      style={styles.cancelEditButton}
+                      onPress={() => {
+                        setEditingProfile(false);
+                        setDraft(null);
+                      }}
+                      disabled={savingProfile}
+                    >
+                      <Text style={styles.cancelEditText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.saveButton, savingProfile && { opacity: 0.7 }]}
+                      onPress={handleSaveProfile}
+                      disabled={savingProfile}
+                    >
+                      {savingProfile ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.saveText}>Save</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <ProfileLine label="Name" value={profile.name} />
+                  <ProfileLine label="Email" value={profile.email} />
+                  <ProfileLine label="Phone" value={profile.phone} />
+                  <ProfileLine
+                    label="Address"
+                    value={[profile.address.line1, profile.address.line2, profile.address.city, profile.address.state, profile.address.postalCode, profile.address.country]
+                      .filter(Boolean)
+                      .join(", ")}
+                  />
+                </>
+              )}
+            </View>
+
+            {/* ── Invoice history ── */}
+            <View style={styles.cardSection}>
+              <Text style={styles.sectionTitle}>Invoice history</Text>
+              {billingLoading ? (
+                <ActivityIndicator size="small" color="#3B82F6" style={{ marginTop: 8 }} />
+              ) : !hasBillingAccount ? (
+                <Text style={styles.finePrintLeft}>Invoices appear here after your first subscription.</Text>
+              ) : (invoices || []).length === 0 ? (
+                <Text style={styles.finePrintLeft}>No invoices yet.</Text>
+              ) : (
+                (invoices || []).map((inv) => {
+                  const paid = inv.status === "paid";
+                  const open = inv.status === "open" || inv.status === "draft";
+                  return (
+                    <TouchableOpacity key={inv.id} style={styles.invoiceRow} onPress={() => handleOpenInvoice(inv)}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.invoiceTitle} numberOfLines={1}>
+                          {inv.description || inv.number || "Invoice"}
+                        </Text>
+                        <Text style={styles.invoiceSub}>
+                          {inv.created ? new Date(inv.created).toLocaleDateString() : ""}
+                          {inv.number ? ` · ${inv.number}` : ""}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: "flex-end" }}>
+                        <Text style={styles.invoiceAmount}>{money(inv.amountPaid || inv.amountDue, inv.currency)}</Text>
+                        <View style={[styles.invPill, paid ? styles.invPaid : open ? styles.invOpen : styles.invOther]}>
+                          <Text style={[styles.invPillText, paid ? styles.invPaidText : open ? styles.invOpenText : styles.invOtherText]}>
+                            {paid ? "PAID" : inv.status.toUpperCase()}
+                          </Text>
+                        </View>
+                      </View>
+                      <Feather name="chevron-right" size={16} color="#64748B" />
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </View>
+
             <Text style={styles.finePrint}>
               Cancel anytime from billing management — already-linked meters keep their last synced data, and you can always enter bills manually for free.
             </Text>
@@ -352,6 +776,16 @@ export default function Subscriptions() {
         )}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function ProfileLine({ label, value }: { label: string; value: string }) {
+  if (!value) return null;
+  return (
+    <View style={styles.profileLine}>
+      <Text style={styles.profileLabel}>{label}</Text>
+      <Text style={styles.profileValue}>{value}</Text>
+    </View>
   );
 }
 
@@ -390,4 +824,37 @@ const styles = StyleSheet.create({
   waitingRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(52,211,153,0.08)", borderRadius: 14, padding: 12, marginTop: 12, borderWidth: 1, borderColor: "rgba(52,211,153,0.25)" },
   waitingText: { flex: 1, color: "#6EE7B7", fontSize: 12, fontWeight: "600" },
   finePrint: { color: "#64748B", fontSize: 12, lineHeight: 17, textAlign: "center", paddingHorizontal: 8 },
+  finePrintLeft: { color: "#64748B", fontSize: 12, lineHeight: 17, marginTop: 8 },
+  sectionHeadRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
+  sectionTitle: { color: "#FFFFFF", fontSize: SCREEN_WIDTH < 400 ? 15 : 17, fontWeight: "900" },
+  addButton: { flexDirection: "row", alignItems: "center", backgroundColor: "#3B82F6", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12 },
+  addButtonText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800" },
+  editLink: { color: "#60A5FA", fontSize: 13, fontWeight: "800" },
+  methodRow: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "rgba(30,41,59,0.65)", padding: 12, borderRadius: 14, marginTop: 8, borderWidth: 1, borderColor: "rgba(59,130,246,0.10)" },
+  methodIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(59,130,246,0.12)", alignItems: "center", justifyContent: "center" },
+  methodTitle: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
+  methodSub: { color: "#94A3B8", fontSize: 12, fontWeight: "600", marginTop: 2 },
+  profileLine: { flexDirection: "row", justifyContent: "space-between", gap: 12, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: "rgba(51,65,85,0.5)" },
+  profileLabel: { color: "#94A3B8", fontSize: 12, fontWeight: "700" },
+  profileValue: { color: "#E2E8F0", fontSize: 13, fontWeight: "600", flex: 1, textAlign: "right" },
+  fieldLabel: { color: "#94A3B8", fontSize: 12, fontWeight: "700", marginTop: 10, marginBottom: 4 },
+  fieldInput: { backgroundColor: "rgba(11,17,32,0.9)", color: "#FFFFFF", paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, fontSize: 14, borderWidth: 1, borderColor: "rgba(59,130,246,0.12)" },
+  fieldRow: { flexDirection: "row", gap: 8 },
+  editActions: { flexDirection: "row", gap: 8, marginTop: 14 },
+  cancelEditButton: { flex: 1, alignItems: "center", padding: 12, borderRadius: 14, backgroundColor: "rgba(71,85,105,0.4)", borderWidth: 1, borderColor: "rgba(71,85,105,0.5)" },
+  cancelEditText: { color: "#CBD5E1", fontSize: 14, fontWeight: "800" },
+  saveButton: { flex: 1, alignItems: "center", padding: 12, borderRadius: 14, backgroundColor: "#10B981" },
+  saveText: { color: "#FFFFFF", fontSize: 14, fontWeight: "900" },
+  invoiceRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "rgba(30,41,59,0.65)", padding: 12, borderRadius: 14, marginTop: 8, borderWidth: 1, borderColor: "rgba(59,130,246,0.10)" },
+  invoiceTitle: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
+  invoiceSub: { color: "#64748B", fontSize: 11, fontWeight: "600", marginTop: 2 },
+  invoiceAmount: { color: "#FFFFFF", fontSize: 14, fontWeight: "900" },
+  invPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginTop: 4, borderWidth: 1, alignSelf: "flex-end" },
+  invPaid: { backgroundColor: "rgba(16,185,129,0.15)", borderColor: "rgba(16,185,129,0.4)" },
+  invOpen: { backgroundColor: "rgba(251,191,36,0.12)", borderColor: "rgba(251,191,36,0.4)" },
+  invOther: { backgroundColor: "rgba(71,85,105,0.25)", borderColor: "rgba(71,85,105,0.5)" },
+  invPillText: { fontSize: 10, fontWeight: "900" },
+  invPaidText: { color: "#34D399" },
+  invOpenText: { color: "#FBBF24" },
+  invOtherText: { color: "#94A3B8" },
 });

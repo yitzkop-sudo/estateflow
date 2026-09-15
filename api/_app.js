@@ -875,6 +875,168 @@ app.post("/cancel-utility-subscription", requireAuth, async (req, res) => {
   });
 });
 
+// ─── Billing hub: payment methods, profile, invoices (in-app Stripe) ─────────
+// Lets users manage everything without leaving the app. All calls run on the
+// user's own Stripe customer record; secrets never leave the server.
+function billingStripe() {
+  if (!stripeConfigured()) throw new ApiError(500, "Stripe is not configured.");
+  return stripeFactory(process.env.STRIPE_SECRET_KEY);
+}
+
+async function getBillingCustomerId(uid) {
+  const ent = await getUtilityEntitlement(uid);
+  let customerId = ent.stripeCustomerId || null;
+  if (!customerId) {
+    const snap = await db.collection("users").doc(uid).get();
+    customerId = snap.exists ? snap.data()?.stripeCustomerId || null : null;
+  }
+  if (!customerId) {
+    throw new ApiError(404, "No billing account yet — subscribe to a utility first.");
+  }
+  return customerId;
+}
+
+function customerDefaultPm(customer) {
+  if (!customer || typeof customer === "string") return null;
+  const def = customer.invoice_settings?.default_payment_method;
+  return typeof def === "string" ? def : def?.id || null;
+}
+
+app.get("/billing-payment-methods", requireAuth, async (req, res) => {
+  const stripe = billingStripe();
+  const customerId = await getBillingCustomerId(req.uid);
+  const [customer, pms] = await Promise.all([
+    stripe.customers.retrieve(customerId),
+    stripe.customers.listPaymentMethods(customerId, { type: "card", limit: 20 }),
+  ]);
+  if (typeof customer !== "string" && customer.deleted) {
+    throw new ApiError(404, "Billing account not found.");
+  }
+  const def = customerDefaultPm(customer);
+  res.json({
+    methods: (pms.data || []).map((pm) => ({
+      id: pm.id,
+      brand: pm.card?.brand || "card",
+      last4: pm.card?.last4 || "••••",
+      expMonth: pm.card?.exp_month || null,
+      expYear: pm.card?.exp_year || null,
+      isDefault: pm.id === def,
+    })),
+  });
+});
+
+app.post("/billing-payment-methods/default", requireAuth, async (req, res) => {
+  const stripe = billingStripe();
+  const customerId = await getBillingCustomerId(req.uid);
+  const paymentMethodId = String(req.body?.paymentMethodId || "").trim();
+  if (!paymentMethodId) throw new ApiError(400, "Missing paymentMethodId.");
+  await stripe.customers.update(customerId, {
+    invoice_settings: { default_payment_method: paymentMethodId },
+  });
+  res.json({ ok: true });
+});
+
+app.post("/billing-payment-methods/detach", requireAuth, async (req, res) => {
+  const stripe = billingStripe();
+  const customerId = await getBillingCustomerId(req.uid);
+  const paymentMethodId = String(req.body?.paymentMethodId || "").trim();
+  if (!paymentMethodId) throw new ApiError(400, "Missing paymentMethodId.");
+  const customer = await stripe.customers.retrieve(customerId);
+  if (customerDefaultPm(customer) === paymentMethodId) {
+    await stripe.customers.update(customerId, {
+      invoice_settings: { default_payment_method: "" },
+    });
+  }
+  await stripe.paymentMethods.detach(paymentMethodId);
+  res.json({ ok: true });
+});
+
+// Hosted card-collection for adding a card (Setup mode: no charge).
+app.post("/billing-payment-methods/setup", requireAuth, async (req, res) => {
+  const stripe = billingStripe();
+  const customerId = await getBillingCustomerId(req.uid);
+  const base = webBaseUrl();
+  const session = await stripe.checkout.sessions.create({
+    mode: "setup",
+    customer: customerId,
+    payment_method_types: ["card"],
+    success_url: `${base}/utility-return.html?billing=setup&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${base}/utility-return.html?billing=canceled`,
+  });
+  res.json({ url: session.url });
+});
+
+app.get("/billing-profile", requireAuth, async (req, res) => {
+  const stripe = billingStripe();
+  const customer = await stripe.customers.retrieve(await getBillingCustomerId(req.uid));
+  if (typeof customer === "string" || customer.deleted) {
+    throw new ApiError(404, "Billing account not found.");
+  }
+  res.json({
+    name: customer.name || "",
+    email: customer.email || "",
+    phone: customer.phone || "",
+    address: {
+      line1: customer.address?.line1 || "",
+      line2: customer.address?.line2 || "",
+      city: customer.address?.city || "",
+      state: customer.address?.state || "",
+      postalCode: customer.address?.postal_code || "",
+      country: customer.address?.country || "",
+    },
+  });
+});
+
+app.post("/billing-profile", requireAuth, async (req, res) => {
+  const stripe = billingStripe();
+  const customerId = await getBillingCustomerId(req.uid);
+  const body = req.body || {};
+  const str = (v) => (typeof v === "string" ? v.trim() : "");
+  const patch = {};
+  if (typeof body.name === "string") patch.name = str(body.name);
+  if (typeof body.phone === "string") patch.phone = str(body.phone);
+  if (typeof body.email === "string" && /.+@.+\..+/.test(body.email.trim())) {
+    patch.email = body.email.trim();
+  }
+  if (body.address && typeof body.address === "object") {
+    const current = await stripe.customers.retrieve(customerId);
+    const cur = typeof current === "string" || current.deleted ? {} : current.address || {};
+    patch.address = {
+      line1: body.address.line1 !== undefined ? str(body.address.line1) : cur.line1 || "",
+      line2: body.address.line2 !== undefined ? str(body.address.line2) : cur.line2 || "",
+      city: body.address.city !== undefined ? str(body.address.city) : cur.city || "",
+      state: body.address.state !== undefined ? str(body.address.state) : cur.state || "",
+      postal_code: body.address.postalCode !== undefined ? str(body.address.postalCode) : cur.postal_code || "",
+      country: body.address.country !== undefined ? str(body.address.country).toUpperCase() : cur.country || "",
+    };
+  }
+  if (Object.keys(patch).length === 0) throw new ApiError(400, "Nothing to update.");
+  await stripe.customers.update(customerId, patch);
+  res.json({ ok: true });
+});
+
+app.get("/billing-invoices", requireAuth, async (req, res) => {
+  const stripe = billingStripe();
+  const customerId = await getBillingCustomerId(req.uid);
+  const rawLimit = Number(req.query?.limit);
+  const limit = Math.min(Math.max(Number.isFinite(rawLimit) ? rawLimit : 10, 1), 25);
+  const inv = await stripe.invoices.list({ customer: customerId, limit });
+  res.json({
+    invoices: (inv.data || []).map((i) => ({
+      id: i.id,
+      number: i.number || "",
+      description: i.lines?.data?.[0]?.description || "",
+      amountDue: i.amount_due ?? 0,
+      amountPaid: i.amount_paid ?? 0,
+      currency: i.currency || "usd",
+      status: i.status || "",
+      created: i.created ? new Date(i.created * 1000).toISOString() : null,
+      hostedUrl: i.hosted_invoice_url || null,
+      pdfUrl: i.invoice_pdf || null,
+    })),
+  });
+});
+
 // ─── Provider catalog for the in-app picker (no subscription needed — users
 // pick a provider BEFORE paying, so this stays outside the entitlement gate).
 let supportedUtilitiesCache = { at: 0, data: null };
