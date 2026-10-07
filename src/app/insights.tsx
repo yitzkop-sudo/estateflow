@@ -14,15 +14,14 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   ActivityIndicator,
-  Dimensions,
   Image,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BarChart, LineChart, PieChart } from "react-native-gifted-charts";
 import Svg, { Circle, Path, Polyline } from "react-native-svg";
@@ -30,8 +29,7 @@ import Svg, { Circle, Path, Polyline } from "react-native-svg";
 import { auth, db } from "../lib/firebase";
 import { exportInsights } from "../lib/export";
 import { requirePlanFeature } from "../lib/plans";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+import { useResponsive } from "../hooks/use-responsive";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -316,6 +314,7 @@ function MarginGauge({ percent, size = 170 }: { percent: number; size?: number }
 
 export default function Insights() {
   const router = useRouter();
+  const { width: winWidth, isSmallPhone } = useResponsive();
   const [loading, setLoading] = useState(true);
   const [properties, setProperties] = useState<Property[]>([]);
   const [snapshots, setSnapshots] = useState<Record<string, MonthSnapshot>>({});
@@ -323,6 +322,13 @@ export default function Insights() {
   const [tenants, setTenants] = useState<InsightTenant[]>([]);
   const [maintenance, setMaintenance] = useState<Maintenance[]>([]);
   const [rangeMonths, setRangeMonths] = useState<3 | 6>(6);
+  // Chart point spacing scales with available width so the 3/6-month line
+  // charts neither clip on small phones nor huddle on tablets/desktop.
+  const contentWidth = Math.min(winWidth, 1200) - 88; // scroll padding + card padding
+  const lineSpacing =
+    rangeMonths === 6
+      ? Math.max(34, Math.min(72, contentWidth / 6.4))
+      : Math.max(60, Math.min(120, contentWidth / 3.2));
 
   const loadDashboard = useCallback(async (uid: string) => {
     try {
@@ -813,7 +819,7 @@ export default function Insights() {
                 yAxisColor="rgba(59,130,246,0.15)"
                 showVerticalLines={false}
                 showHorizontalLines={false}
-                spacing={rangeMonths === 6 ? 50 : 80}
+                spacing={lineSpacing}
                 initialSpacing={12}
                 endSpacing={12}
                 isAnimated
@@ -824,7 +830,7 @@ export default function Insights() {
 
             {/* EXPENSE BREAKDOWN */}
             <ChartCard title="Expense Breakdown">
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <View style={{ flexDirection: isSmallPhone ? "column" : "row", alignItems: "center", gap: isSmallPhone ? 12 : 0 }}>
                 <PieChart
                   data={pieData}
                   radius={70}
@@ -846,7 +852,7 @@ export default function Insights() {
                     </View>
                   )}
                 />
-                <View style={{ flex: 1, marginLeft: 16 }}>
+                <View style={{ flex: 1, width: isSmallPhone ? "100%" : undefined, marginLeft: isSmallPhone ? 0 : 16, marginTop: isSmallPhone ? 4 : 0 }}>
                   {expenseCategories.map((cat, i) => (
                     <View key={cat.key} style={styles.pieLegendItem}>
                       <View style={[styles.legendColor, { backgroundColor: cat.color }]} />
@@ -1186,8 +1192,8 @@ function LegendDot({ color, label }: { color: string; label: string }) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#060D1C" },
   bgImage: { position: "absolute", width: "100%", height: "100%" },
-  bgOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(5,10,20,0.78)" },
-  scrollContent: { padding: 16, paddingBottom: 60, gap: 14 },
+  bgOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(5,10,20,0.78)" },
+  scrollContent: { width: "100%", maxWidth: 1200, alignSelf: "center", padding: 16, paddingBottom: 60, gap: 14 },
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
 
   header: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
@@ -1226,8 +1232,8 @@ const styles = StyleSheet.create({
   sectionHeaderRow: { marginTop: 2 },
   sectionTitle: { color: "#FFFFFF", fontSize: 20, fontWeight: "800" },
 
-  utilityGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 14 },
-  utilityCard: { width: "48%", backgroundColor: "rgba(12,24,46,.96)", borderRadius: 22, padding: 16, borderWidth: 1, borderColor: "rgba(59,130,246,.12)" },
+  utilityGrid: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
+  utilityCard: { flexGrow: 1, flexBasis: 160, minWidth: 150, backgroundColor: "rgba(12,24,46,.96)", borderRadius: 22, padding: 16, borderWidth: 1, borderColor: "rgba(59,130,246,.12)" },
   utilityIconSm: { width: 40, height: 40, borderRadius: 14, justifyContent: "center", alignItems: "center", marginBottom: 12 },
   utilityName: { color: "#94A3B8", fontSize: 13 },
   utilityPrice: { color: "#FFFFFF", fontWeight: "900", fontSize: 20, marginTop: 4 },

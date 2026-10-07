@@ -62,4 +62,5 @@ export const Spacing = {
 } as const;
 
 export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
-export const MaxContentWidth = 800;
+// Legacy cap — prefer ContentMaxWidth from '@/constants/responsive' for new code.
+export const MaxContentWidth = 1024;

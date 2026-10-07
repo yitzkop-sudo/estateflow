@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "651335250513",
+    "project_id": "estateflow-827fc",
+    "storage_bucket": "estateflow-827fc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:651335250513:android:048ea0779b28e461707e70",
+        "android_client_info": {
+          "package_name": "com.estateflow.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "651335250513-e5lsdfnbgovvn6lee7lbcntv0hj2u6ea.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCdELfP7nTk6mjvuBlNFyHldvQUDxUNknM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "651335250513-e5lsdfnbgovvn6lee7lbcntv0hj2u6ea.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -270,13 +270,13 @@ body {
 @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 .rent-status-text { font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; }
 .rent-amount {
-  font-size: 42px; font-weight: 900; letter-spacing: -2px;
+  font-size: clamp(30px, 8vw, 42px); font-weight: 900; letter-spacing: -2px;
   background: linear-gradient(135deg, #fff, #CBD5E1);
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 .rent-label { color: var(--text-muted); font-size: 13px; margin-bottom: 22px; }
-.rent-details { display: flex; gap: 24px; margin-bottom: 22px; }
+.rent-details { display: flex; flex-wrap: wrap; row-gap: 10px; column-gap: 24px; margin-bottom: 22px; }
 .rent-detail {
   display: flex; align-items: center; gap: 8px;
   color: var(--text-secondary); font-size: 13px; font-weight: 600;
@@ -448,9 +448,27 @@ body {
 }
 
 /* ═══ RESPONSIVE ═══ */
+/* Small phones */
+@media (max-width: 360px) {
+  .container { padding: 12px; }
+  .greeting-name { font-size: 22px; }
+  .quick-actions { gap: 8px; }
+  .quick-action-btn { padding: 14px 10px; }
+  .toast { max-width: calc(100vw - 32px); white-space: normal; text-align: center; }
+}
+/* Phones */
 @media (max-width: 480px) {
   .container { padding: 16px; }
-  .rent-amount { font-size: 36px; }
   .greeting-name { font-size: 24px; }
   .modal { padding: 22px; }
+}
+/* Tablets — widen the column, 3-up quick actions */
+@media (min-width: 720px) {
+  .container { max-width: 720px; padding: 28px; }
+  .quick-actions { grid-template-columns: repeat(3, 1fr); gap: 14px; }
+}
+/* Desktop / wide tablets — 4-up grid, comfortable reading width */
+@media (min-width: 1100px) {
+  .container { max-width: 880px; padding: 32px; }
+  .quick-actions { grid-template-columns: repeat(4, 1fr); gap: 16px; }
 }

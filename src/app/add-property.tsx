@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { addDoc, collection, doc, serverTimestamp, updateDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -14,7 +14,6 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
@@ -23,6 +22,7 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { auth, db, storage } from "../lib/firebase";
 import { consumePendingUtilityLink } from "../lib/pendingUtilityLink";
 import {
@@ -179,6 +179,30 @@ export default function AddProperty() {
   const [connectingUtility, setConnectingUtility] = useState<UtilityKey | null>(null);
   const [connectStatus, setConnectStatus] = useState("");
   const [subStatus, setSubStatus] = useState<UtilitySubStatus | null>(null);
+  const [loadingProperty, setLoadingProperty] = useState(false);
+
+  // Fill the form from a Firestore property document (edit mode).
+  const applyPropertyData = (id: string, propertyData: any) => {
+    setIsEditing(true);
+    setPropertyId(id);
+    setForm({
+      propertyName: propertyData.propertyName || "",
+      street: propertyData.street || "",
+      city: propertyData.city || "",
+      state: propertyData.state || "",
+      zip: propertyData.zip || "",
+      mapAddress: propertyData.mapAddress || "",
+      propertyType: propertyData.propertyType || null,
+      numUnits: propertyData.numUnits?.toString() || "1",
+      ownerName: propertyData.ownerName || "",
+      tenants: propertyData.tenants || [],
+      notes: propertyData.notes || "",
+      value: propertyData.value?.toString() || "",
+      downPayment: propertyData.downPayment?.toString() || "",
+    });
+    if (propertyData.photoUrl) setPhotoUrl(propertyData.photoUrl);
+    if (propertyData.utilities) setUtilities(propertyData.utilities);
+  };
 
   useEffect(() => {
     const user = auth.currentUser;
@@ -189,35 +213,36 @@ export default function AddProperty() {
       .then(setSubStatus)
       .catch(() => setSubStatus({ active: false, plan: null, currentPeriodEnd: null, portalUrl: null, meterLimit: 0, linkedMeters: 0 }));
 
-    if (params.propertyId && params.propertyData && !isEditing) {
-      try {
-        setIsEditing(true);
-        setPropertyId(params.propertyId as string);
-        const propertyData = JSON.parse(decodeURIComponent(params.propertyData as string));
-        setForm({
-          propertyName: propertyData.propertyName || "",
-          street: propertyData.street || "",
-          city: propertyData.city || "",
-          state: propertyData.state || "",
-          zip: propertyData.zip || "",
-          mapAddress: propertyData.mapAddress || "",
-          propertyType: propertyData.propertyType || null,
-          numUnits: propertyData.numUnits?.toString() || "1",
-          ownerName: propertyData.ownerName || "",
-          tenants: propertyData.tenants || [],
-          notes: propertyData.notes || "",
-          value: propertyData.value?.toString() || "",
-          downPayment: propertyData.downPayment?.toString() || "",
-        });
-        if (propertyData.photoUrl) setPhotoUrl(propertyData.photoUrl);
-        if (propertyData.utilities) setUtilities(propertyData.utilities);
-      } catch (e) {
-        console.error("Error parsing property data:", e);
-      }
+    if (params.propertyId && !isEditing) {
+      const loadForEdit = async () => {
+        try {
+          if (params.propertyData) {
+            // Legacy path: full document passed in params (kept for compatibility).
+            const propertyData = JSON.parse(decodeURIComponent(params.propertyData as string));
+            applyPropertyData(params.propertyId as string, propertyData);
+          } else {
+            // Preferred path: ID only (params have URL length limits — a photo
+            // data URL alone can exceed them and silently break navigation).
+            setLoadingProperty(true);
+            const snap = await getDoc(doc(db, "properties", params.propertyId as string));
+            if (!snap.exists() || (snap.data() as any).ownerId !== user.uid) {
+              setError("That property could not be found.");
+              return;
+            }
+            applyPropertyData(snap.id, snap.data());
+          }
+        } catch (e) {
+          console.error("Error loading property data:", e);
+          setError("Could not load that property.");
+        } finally {
+          setLoadingProperty(false);
+        }
+      };
+      loadForEdit();
     }
   }, [router, params.propertyId, params.propertyData, isEditing]);
 
-  // Apply a completed provider link to exactly one utility row.
+  // Apply a completed provider link to the utility row.
   const applyLinkedUtility = (
     key: UtilityKey,
     data: { amount: string; provider: string; dueDay: DueDay; meterUid: string; notify?: boolean }
@@ -399,7 +424,7 @@ export default function AddProperty() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"],
       allowsEditing: true,
       aspect: [4, 3],
       quality: 1,
@@ -637,6 +662,12 @@ export default function AddProperty() {
       <SafeAreaView style={styles.container}>
         <Image source={require("../assets/login-bg.png")} style={styles.backgroundImage} resizeMode="cover" />
         <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(5,10,20,0.78)" }]} />
+        {loadingProperty ? (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
+            <ActivityIndicator size="large" color="#3B82F6" />
+            <Text style={styles.progressText}>Loading property…</Text>
+          </View>
+        ) : (
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
           {/* ── HEADER ── */}
@@ -851,8 +882,8 @@ export default function AddProperty() {
                   </View>
                 ) : subStatus.linkedMeters > 0 ? (
                   <View style={styles.connectBanner}>
-                    <Feather name="link" size={14} color="#34D399" />
-                    <Text style={styles.connectBannerText}>Auto-sync is on: tap the link icon on a utility to pull your latest bill straight from the provider. ({subStatus.linkedMeters}/{subStatus.meterLimit} meters)</Text>
+                    <Feather name="refresh-cw" size={14} color="#34D399" />
+                    <Text style={styles.connectBannerText}>Auto-sync is on: tap the circular refresh icon on a utility to pull your latest bill straight from the provider. ({subStatus.linkedMeters}/{subStatus.meterLimit} meters)</Text>
                   </View>
                 ) : (
                   <View style={styles.connectBanner}>
@@ -881,18 +912,18 @@ export default function AddProperty() {
                         <View style={[styles.utilityIconChip, { backgroundColor: `${meta.color}22` }]}>
                           <Feather name={meta.icon} size={SCREEN_WIDTH < 400 ? 16 : 18} color={meta.color} />
                         </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.utilityLabel}>{key}</Text>
+                        <View style={styles.utilityTextWrap}>
+                          <Text style={styles.utilityLabel} numberOfLines={1}>{key}</Text>
                           {utility ? (
-                            <Text style={styles.utilityDetailText}>{`${utility.provider || "No provider"}${utility.meterUid ? " • linked" : ""}${utility.notify === false ? " • muted" : ""}`}</Text>
+                            <Text style={styles.utilityDetailText} numberOfLines={2} ellipsizeMode="tail">{`${utility.provider || "No provider"}${utility.meterUid ? " • linked" : ""}${utility.notify === false ? " • muted" : ""}`}</Text>
                           ) : (
                             <Text style={styles.utilityPlaceholder}>Not added yet</Text>
                           )}
                         </View>
                         {utility ? (
-                          <View style={{ alignItems: "flex-end" }}>
-                            <Text style={styles.utilityAmountText}>{`$${utility.amount}`}</Text>
-                            <Text style={styles.utilityDueText}>{`Due: ${formatUtilityDueDay(utility.dueDay)}`}</Text>
+                          <View style={styles.utilityAmountWrap}>
+                            <Text style={styles.utilityAmountText} numberOfLines={1}>{`$${utility.amount}`}</Text>
+                            <Text style={styles.utilityDueText} numberOfLines={2}>{`Due: ${formatUtilityDueDay(utility.dueDay)}`}</Text>
                             {utility.notify === false ? (
                               <Feather name="bell-off" size={12} color="#64748B" style={{ marginTop: 2 }} />
                             ) : null}
@@ -1104,6 +1135,7 @@ export default function AddProperty() {
             )}
           </View>
         </ScrollView>
+        )}
       </SafeAreaView>
 
       {/* Address suggestions overlay */}
@@ -1133,7 +1165,7 @@ export default function AddProperty() {
       <Modal visible={photoModalOpen} transparent animationType="fade" onRequestClose={() => setPhotoModalOpen(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { alignItems: "center" }]}>
-            {photoUrl ? <Image source={{ uri: photoUrl }} style={{ width: SCREEN_WIDTH - 48, height: (SCREEN_WIDTH - 48) * 0.7, borderRadius: 12, marginBottom: 12 }} resizeMode="cover" /> : null}
+            {photoUrl ? <Image source={{ uri: photoUrl }} style={{ width: "100%", maxWidth: 640, aspectRatio: 1.43, borderRadius: 12, marginBottom: 12 }} resizeMode="cover" /> : null}
             <TouchableOpacity style={[styles.button, { backgroundColor: "#3B82F6", marginBottom: 8, width: "100%" }]} onPress={replacePhoto}>
               <Text style={styles.buttonText}>Replace Photo</Text>
             </TouchableOpacity>
@@ -1171,8 +1203,8 @@ export default function AddProperty() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#060D1C", position: "relative" },
-  backgroundImage: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
-  scrollContent: { padding: SCREEN_WIDTH < 400 ? 16 : 20, gap: 14 },
+  backgroundImage: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  scrollContent: { width: "100%", maxWidth: 720, alignSelf: "center", padding: SCREEN_WIDTH < 400 ? 16 : 20, gap: 14 },
   headerContainer: { marginBottom: SCREEN_WIDTH < 400 ? 12 : 16 },
   headerTitle: { color: "#FFFFFF", fontSize: SCREEN_WIDTH < 400 ? 24 : 32, fontWeight: "900", letterSpacing: 0.5, marginBottom: 4 },
   progressContainer: { marginBottom: SCREEN_WIDTH < 400 ? 18 : 24 },
@@ -1249,13 +1281,15 @@ const styles = StyleSheet.create({
 
   utilitiesContainer: { marginBottom: SCREEN_WIDTH < 400 ? 4 : 6 },
   utilityItem: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(30,41,59,0.65)", padding: SCREEN_WIDTH < 400 ? 12 : 14, borderRadius: 16, marginBottom: 10, borderWidth: 1, borderColor: "rgba(59,130,246,0.10)" },
-  utilityRowMain: { flex: 1, flexDirection: "row", alignItems: "center" },
+  utilityRowMain: { flex: 1, flexDirection: "row", alignItems: "center", minWidth: 0 },
+  utilityTextWrap: { flex: 1, flexGrow: 1, flexShrink: 1, minWidth: 0, marginRight: 8 },
+  utilityAmountWrap: { flexShrink: 1, minWidth: 0, maxWidth: "55%", alignItems: "flex-end", marginLeft: 4 },
   utilityIconChip: { width: SCREEN_WIDTH < 400 ? 36 : 40, height: SCREEN_WIDTH < 400 ? 36 : 40, borderRadius: 12, alignItems: "center", justifyContent: "center", marginRight: 12 },
   utilityLabel: { color: "#FFFFFF", fontSize: SCREEN_WIDTH < 400 ? 14 : 16, fontWeight: "900" },
-  utilityDetailText: { color: "#94A3B8", fontSize: SCREEN_WIDTH < 400 ? 12 : 13, fontWeight: "600", marginTop: 2 },
+  utilityDetailText: { color: "#94A3B8", fontSize: SCREEN_WIDTH < 400 ? 12 : 13, fontWeight: "600", marginTop: 2, lineHeight: 17 },
   utilityPlaceholder: { color: "#64748B", fontSize: SCREEN_WIDTH < 400 ? 12 : 13, fontWeight: "600", marginTop: 2 },
   utilityAmountText: { color: "#FFFFFF", fontSize: SCREEN_WIDTH < 400 ? 13 : 14, fontWeight: "800" },
-  utilityDueText: { color: "#64748B", fontSize: SCREEN_WIDTH < 400 ? 10 : 11, fontWeight: "600", marginTop: 2 },
+  utilityDueText: { color: "#64748B", fontSize: SCREEN_WIDTH < 400 ? 10 : 11, fontWeight: "600", marginTop: 2, textAlign: "right" },
   utilityAddLink: { color: "#3B82F6", fontSize: SCREEN_WIDTH < 400 ? 13 : 14, fontWeight: "800" },
   utilityLinkBtn: { marginLeft: 8, width: 36, height: 36, borderRadius: 12, backgroundColor: "rgba(52,211,153,0.12)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(52,211,153,0.22)" },
   connectBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(52,211,153,0.08)", borderRadius: 14, padding: SCREEN_WIDTH < 400 ? 10 : 12, marginBottom: SCREEN_WIDTH < 400 ? 10 : 12, borderWidth: 1, borderColor: "rgba(52,211,153,0.25)" },

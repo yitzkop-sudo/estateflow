@@ -6,15 +6,16 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { BarChart, PieChart } from "react-native-gifted-charts";
 import { auth, db } from "../lib/firebase";
+import { useResponsive } from "../hooks/use-responsive";
 
 type UtilityItem = {
   amount: string;
@@ -87,6 +88,12 @@ const formatDate = (v: any) => {
 export default function PropertyBreakdown() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { width: winWidth, isSmallPhone } = useResponsive();
+  // Two-bar chart geometry scales with available width (was fixed 44/40/30,
+  // which overflowed small phones and looked lost on desktop).
+  const chartSlot = Math.max(120, Math.min(winWidth, 1200) - 156);
+  const barWidth = Math.max(28, Math.min(64, chartSlot / 4));
+  const barSpacing = Math.max(20, Math.min(80, chartSlot / 4));
   const propertyId = typeof params.propertyId === "string" ? params.propertyId : null;
 
   const [loading, setLoading] = useState(true);
@@ -299,9 +306,9 @@ export default function PropertyBreakdown() {
                   { value: expense, label: "Expense", frontColor: "#EF4444" },
                 ]}
                 height={180}
-                barWidth={44}
+                barWidth={barWidth}
                 barBorderRadius={6}
-                spacing={40}
+                spacing={barSpacing}
                 initialSpacing={30}
                 yAxisTextStyle={{ color: "#94A3B8", fontSize: 11 }}
                 xAxisLabelTextStyle={{ color: "#94A3B8", fontSize: 11 }}
@@ -326,7 +333,7 @@ export default function PropertyBreakdown() {
               {pieData.length === 0 ? (
                 <Text style={styles.emptyText}>No expenses recorded.</Text>
               ) : (
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View style={{ flexDirection: isSmallPhone ? "column" : "row", alignItems: "center", gap: isSmallPhone ? 12 : 0 }}>
                   <PieChart
                     data={pieData}
                     radius={70}
@@ -348,7 +355,7 @@ export default function PropertyBreakdown() {
                       </View>
                     )}
                   />
-                  <View style={{ flex: 1, marginLeft: 16 }}>
+                  <View style={{ flex: 1, width: isSmallPhone ? "100%" : undefined, marginLeft: isSmallPhone ? 0 : 16, marginTop: isSmallPhone ? 4 : 0 }}>
                     {EXPENSE_CATEGORIES.map((cat) =>
                       utilitySlices[cat.key] > 0 ? (
                         <View key={cat.key} style={styles.pieLegendItem}>
@@ -455,7 +462,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#060D1C" },
   bgImage: { position: "absolute", width: "100%", height: "100%" },
   bgOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(5,10,20,0.78)" },
-  scrollContent: { padding: 16, paddingBottom: 60, gap: 14 },
+  scrollContent: { width: "100%", maxWidth: 1200, alignSelf: "center", padding: 16, paddingBottom: 60, gap: 14 },
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center", gap: 12 },
   notFound: { color: "#94A3B8", fontSize: 15, fontWeight: "700" },
   backToInsights: { backgroundColor: "rgba(59,130,246,.15)", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
@@ -468,8 +475,8 @@ const styles = StyleSheet.create({
   marginPill: { backgroundColor: "rgba(34,197,94,.15)", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
   marginPillText: { color: "#22C55E", fontWeight: "700", fontSize: 12 },
 
-  statRow: { flexDirection: "row", gap: 12 },
-  statCard: { flex: 1, backgroundColor: "rgba(12,24,46,.96)", borderRadius: 18, padding: 14, borderWidth: 1, borderColor: "rgba(59,130,246,.15)" },
+  statRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  statCard: { flexGrow: 1, flexBasis: 100, minWidth: 100, backgroundColor: "rgba(12,24,46,.96)", borderRadius: 18, padding: 14, borderWidth: 1, borderColor: "rgba(59,130,246,.15)" },
   statLabel: { color: "#64748B", fontSize: 11, fontWeight: "700" },
   statValue: { fontSize: 18, fontWeight: "900", marginTop: 4 },
 

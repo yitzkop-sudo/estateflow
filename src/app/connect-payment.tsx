@@ -6,13 +6,15 @@ import {
   Alert,
   Dimensions,
   Image,
-  SafeAreaView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { CheckoutSheet, isCheckoutSheetAvailable, type CheckoutRequest } from "../components/checkout-sheet";
 import { auth } from "../lib/firebase";
 import { openExternalUrl } from "../lib/openExternal";
 import {
@@ -42,6 +44,7 @@ export default function ConnectPayment() {
   const [paying, setPaying] = useState(false);
   const [paidPending, setPaidPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkout, setCheckout] = useState<CheckoutRequest | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPoll = useCallback(() => {
@@ -154,6 +157,21 @@ export default function ConnectPayment() {
     setPaying(true);
     setError(null);
     try {
+      if (Platform.OS !== "web" && isCheckoutSheetAvailable()) {
+        const res = await startUtilitySubscription(utilityKey, forceNew);
+        if (res.alreadyActive) {
+          goAuthorize();
+          return;
+        }
+        setCheckout({
+          url: res.url,
+          title: `Pay · ${utilityKey}${providerName ? ` · ${providerName}` : ""}`,
+          subtitle: "$20/mo · secure Stripe checkout",
+          successMarkers: ["utility=subscribed"],
+          cancelMarkers: ["utility=canceled"],
+        });
+        return;
+      }
       let alreadyActive = false;
       const opened = await openExternalUrl(async () => {
         const res = await startUtilitySubscription(utilityKey, forceNew);
@@ -178,6 +196,15 @@ export default function ConnectPayment() {
       Alert.alert("Checkout failed", msg);
     } finally {
       setPaying(false);
+    }
+  };
+
+  /** In-app sheet result: "poll" watches for confirmation, "refresh" just re-reads. */
+  const handleCheckoutResult = (action: "poll" | "refresh") => {
+    setCheckout(null);
+    if (action === "poll") {
+      setPaidPending(true);
+      startPayPoll();
     }
   };
 
@@ -324,6 +351,13 @@ export default function ConnectPayment() {
           </View>
         )}
       </ScrollView>
+
+      {/* ── In-app Stripe checkout sheet ── */}
+      <CheckoutSheet
+        request={checkout}
+        onSuccess={() => handleCheckoutResult("poll")}
+        onCancel={(openedExternally) => handleCheckoutResult(openedExternally ? "poll" : "refresh")}
+      />
     </SafeAreaView>
   );
 }
@@ -331,7 +365,7 @@ export default function ConnectPayment() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#060D1C", position: "relative" },
   backgroundImage: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, width: "100%", height: "100%" },
-  scrollContent: { padding: SCREEN_WIDTH < 400 ? 16 : 20, gap: 14 },
+  scrollContent: { width: "100%", maxWidth: 720, alignSelf: "center", padding: SCREEN_WIDTH < 400 ? 16 : 20, gap: 14 },
   headerContainer: { marginBottom: 4 },
   backBtn: { backgroundColor: "#1E293B", padding: SCREEN_WIDTH < 400 ? 8 : 10, borderRadius: SCREEN_WIDTH < 400 ? 8 : 10, marginRight: 12 },
   headerTitle: { color: "#FFFFFF", fontSize: SCREEN_WIDTH < 400 ? 24 : 28, fontWeight: "900", letterSpacing: 0.5 },

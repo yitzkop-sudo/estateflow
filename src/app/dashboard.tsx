@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
+import { signOutEverywhere } from "../lib/google-auth";
 import {
   collection,
   deleteDoc,
@@ -19,24 +20,25 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Animated,
-  Dimensions,
   Image,
   Modal,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { computeNextDueDate } from "../lib/date";
+import { LinearGradient as ExpoLinearGradient } from "expo-linear-gradient";
 import Svg, { Circle, Defs, LinearGradient, Path, Stop } from "react-native-svg";
 import { auth, db } from "../lib/firebase";
 import { scheduleRentReminders, scheduleUtilityReminders } from "../lib/notifications";
 import { exportFullReport } from "../lib/export";
 
-const { width: SW, height: SH } = Dimensions.get("window");
-const DRAWER_WIDTH = Math.min(280, Math.round(SW * 0.8));
+/** Drawer width that adapts to rotation / window resize (replaces static Dimensions snapshot). */
+const drawerWidthFor = (windowWidth: number) => Math.min(320, Math.round(windowWidth * 0.85));
 
 // ─── types ────────────────────────────────────────────────────────────────────
 type UtilityItem = { amount: string; provider: string; dueDay: number | "last"; notify?: boolean };
@@ -292,11 +294,13 @@ export default function Dashboard() {
   const [rawPayments, setRawPayments] = useState<{ tenantName: string; propertyName: string; rentAmount: number; paidAt: any }[]>([]);
   const [rawMaintenance, setRawMaintenance] = useState<{ title: string; propertyName: string; cost: number; date: any; notes?: string }[]>([]);
 
+  const { width: winWidth } = useWindowDimensions();
+  const DRAWER_WIDTH = drawerWidthFor(winWidth);
   const anim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
 
   useEffect(() => {
     Animated.timing(anim, { toValue: menuOpen ? 0 : -DRAWER_WIDTH, duration: 220, useNativeDriver: true }).start();
-  }, [menuOpen]);
+  }, [menuOpen, DRAWER_WIDTH, anim]);
 
   useEffect(() => {
     let unsubSnapshot: (() => void) | null = null;
@@ -584,7 +588,7 @@ export default function Dashboard() {
   // Only keep trailing non-null values; if < 2 real points → show empty chart
   const filledSpark = sparkData.filter((v): v is number => v !== null);
 
-  const handleLogout = async () => { try { await signOut(auth); router.replace("/login"); } catch { } };
+  const handleLogout = async () => { try { await signOutEverywhere(); router.replace("/login"); } catch { } };
   const openDuesModal = () => {
     lastReadCount.current = notifCount;
     setNotifRead(true);
@@ -621,8 +625,9 @@ export default function Dashboard() {
   const badgeColor = (type: string) => type?.toLowerCase().includes("commercial") ? "#A855F7" : "#3B82F6";
 
   const CARD_H = 168;
-  const CHART_W = SW * 0.52;
+  const CHART_W = Math.min(winWidth * 0.52, 420);
   const CHART_H = CARD_H - 24;
+  const modalImgW = Math.min(winWidth - 48, 720);
 
   return (
     <View style={s.root}>
@@ -645,10 +650,23 @@ export default function Dashboard() {
           <TouchableOpacity onPress={() => setMenuOpen(true)} style={s.iconBtn}>
             <Feather name="menu" size={22} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity style={s.iconBtn} onPress={openDuesModal}>
-            <Feather name="bell" size={22} color="#fff" />
-            {(notifCount > 0 && !notifRead) || tenantNotifs.some(n => !n.read && !clearedNotifIds.has(n.id)) ? <View style={s.notifDot} /> : null}
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+            <TouchableOpacity onPress={() => router.push("/ai-assistant")} activeOpacity={0.85} style={s.aiBtnShadow}>
+              <ExpoLinearGradient
+                colors={["#7C3AED", "#3B82F6"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={s.aiBtn}
+              >
+                <Feather name="zap" size={15} color="#fff" />
+                <Text style={s.aiBtnText}>AI</Text>
+              </ExpoLinearGradient>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.iconBtn} onPress={openDuesModal}>
+              <Feather name="bell" size={22} color="#fff" />
+              {(notifCount > 0 && !notifRead) || tenantNotifs.some(n => !n.read && !clearedNotifIds.has(n.id)) ? <View style={s.notifDot} /> : null}
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* GREETING */}
@@ -902,6 +920,7 @@ export default function Dashboard() {
             <DrawerItem icon="list" label="View Properties" onPress={openViewProperties} />
             <DrawerItem icon="tool" label="Maintenance" onPress={() => { setMenuOpen(false); router.push("/maintenance"); }} />
             <DrawerItem icon="credit-card" label="Manage Subscriptions" onPress={() => { setMenuOpen(false); router.push("/subscriptions"); }} />
+            <DrawerItem icon="cpu" label="AI Assistant" onPress={() => { setMenuOpen(false); router.push("/ai-assistant"); }} />
             <DrawerItem icon="log-out" label="Sign Out" onPress={handleLogout} />
           </View>
         </SafeAreaView>
@@ -912,7 +931,7 @@ export default function Dashboard() {
       {/* IMAGE MODAL */}
       <Modal visible={imageModalOpen} transparent animationType="fade" onRequestClose={() => setImageModalOpen(false)}>
         <TouchableOpacity style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center", padding: 24 }} onPress={() => setImageModalOpen(false)} activeOpacity={1}>
-          {imageToShow && <Image source={{ uri: imageToShow }} style={{ width: SW - 48, height: (SW - 48) * 0.66, borderRadius: 16 }} resizeMode="cover" />}
+          {imageToShow && <Image source={{ uri: imageToShow }} style={{ width: modalImgW, height: modalImgW * 0.66, borderRadius: 16 }} resizeMode="cover" />}
         </TouchableOpacity>
       </Modal>
 
@@ -1043,12 +1062,15 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#060D1C" },
   topBar: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
   iconBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.12)", justifyContent: "center", alignItems: "center" },
+  aiBtnShadow: { borderRadius: 22, shadowColor: "#7C3AED", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.5, shadowRadius: 10, elevation: 3 },
+  aiBtn: { flexDirection: "row", alignItems: "center", gap: 5, height: 44, paddingHorizontal: 16, borderRadius: 22 },
+  aiBtnText: { color: "#fff", fontSize: 14, fontWeight: "800", letterSpacing: 0.5 },
   notifDot: { position: "absolute", top: 6, right: 6, width: 10, height: 10, borderRadius: 5, backgroundColor: "#EF4444", borderWidth: 2, borderColor: "#060D1C" },
   greetWrap: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 20 },
   greetLine: { color: "#CBD5E1", fontSize: 16, fontWeight: "500" },
   greetName: { color: "#fff", fontSize: 32, fontWeight: "900", marginTop: 2 },
   greetSub: { color: "#64748B", fontSize: 14, marginTop: 4 },
-  scroll: { paddingHorizontal: 16, paddingBottom: 60, gap: 14 },
+  scroll: { width: "100%", maxWidth: 1024, alignSelf: "center", paddingHorizontal: 16, paddingBottom: 60, gap: 14 },
   portfolioCard: { backgroundColor: "rgba(11,20,42,0.97)", borderRadius: 22, borderWidth: 1, borderColor: "rgba(59,130,246,0.25)", padding: 20, overflow: "hidden", shadowColor: "#1D4ED8", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 12 },
   chartOverlay: { position: "absolute", right: 0, bottom: 0 },
   portfolioTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
@@ -1114,7 +1136,7 @@ const s = StyleSheet.create({
   drawerItem: { flexDirection: "row", alignItems: "center", paddingVertical: 14, gap: 14, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" },
   drawerLabel: { color: "#fff", fontSize: 16, fontWeight: "600" },
 
-  duesDropdown: { position: "absolute", top: 68, right: 16, width: Math.min(340, SW - 32), backgroundColor: "rgba(15,23,42,0.98)", borderRadius: 20, padding: 18, borderWidth: 1, borderColor: "rgba(59,130,246,0.2)", shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.5, shadowRadius: 20, elevation: 24 },
+  duesDropdown: { position: "absolute", top: 68, right: 16, width: 340, maxWidth: "92%", backgroundColor: "rgba(15,23,42,0.98)", borderRadius: 20, padding: 18, borderWidth: 1, borderColor: "rgba(59,130,246,0.2)", shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.5, shadowRadius: 20, elevation: 24 },
   duesArrow: { position: "absolute", top: -7, right: 24, width: 14, height: 14, backgroundColor: "rgba(15,23,42,0.98)", borderTopWidth: 1, borderLeftWidth: 1, borderColor: "rgba(59,130,246,0.2)", transform: [{ rotate: "45deg" }] },
   duesTitle: { color: "#fff", fontSize: 17, fontWeight: "900", marginBottom: 12 },
   duesItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },

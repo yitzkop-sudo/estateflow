@@ -6,13 +6,15 @@ import {
   Alert,
   Dimensions,
   Image,
-  SafeAreaView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { CheckoutSheet, isCheckoutSheetAvailable, type CheckoutRequest } from "../components/checkout-sheet";
 import { auth } from "../lib/firebase";
 import { openExternalUrl } from "../lib/openExternal";
 import { setPendingUtilityLink } from "../lib/pendingUtilityLink";
@@ -50,6 +52,7 @@ export default function ConnectAuthorize() {
   const linkingRef = useRef(false);
   const formUidRef = useRef<string | null>(null);
   const autoTriesRef = useRef(0);
+  const [sheet, setSheet] = useState<{ req: CheckoutRequest; kind: "auth" | "portal" } | null>(null);
 
   const stopPoll = useCallback(() => {
     if (pollRef.current) {
@@ -186,11 +189,30 @@ export default function ConnectAuthorize() {
     );
     let waitingForSignIn = false;
     try {
-      const opened = await openExternalUrl(async () => {
-        const form = await openAuthForm(providerUid || undefined, utilityKey);
-        formUidRef.current = form.formUid;
-        return form.url;
-      });
+      const form = await openAuthForm(providerUid || undefined, utilityKey);
+      formUidRef.current = form.formUid;
+      if (Platform.OS !== "web" && isCheckoutSheetAvailable()) {
+        // In-app provider sign-in: the screen's poll watches for completion
+        // and finishes linking by itself — no separate tab needed.
+        setSheet({
+          req: {
+            url: form.url,
+            title: providerName ? `Sign in to ${providerName}` : `Connect ${utilityKey}`,
+            subtitle: "Sign in with your provider · stays in the app",
+            loadingText: "Loading provider sign-in…",
+            secureNote: null,
+            successMarkers: [],
+          },
+          kind: "auth",
+        });
+        waitingForSignIn = true;
+        setStatusMsg("Sign in in the window above — this screen finishes itself when you're done.");
+        setAuthPending(true);
+        autoTriesRef.current = 0;
+        startAuthPoll(formUidRef.current);
+        return;
+      }
+      const opened = await openExternalUrl(async () => form.url);
       if (!opened) {
         setError("The provider tab was blocked. Allow popups for this site and try again.");
         return;
@@ -213,18 +235,45 @@ export default function ConnectAuthorize() {
   const handleManage = async () => {
     setError(null);
     try {
-      const opened = await openExternalUrl(async () => {
-        if (subStatus?.portalUrl) return subStatus.portalUrl;
+      let url: string;
+      if (subStatus?.portalUrl) {
+        url = subStatus.portalUrl;
+      } else {
         const s = await getUtilitySubscriptionStatus();
         setSubStatus(s);
         if (!s?.portalUrl) throw new Error("No billing portal link available yet.");
-        return s.portalUrl;
-      });
+        url = s.portalUrl;
+      }
+      if (Platform.OS !== "web" && isCheckoutSheetAvailable()) {
+        setSheet({
+          req: {
+            url,
+            title: "Billing portal",
+            subtitle: "Manage payment methods · Stripe",
+            loadingText: "Loading billing portal…",
+            successMarkers: [],
+          },
+          kind: "portal",
+        });
+        return;
+      }
+      const opened = await openExternalUrl(async () => url);
       if (!opened) setError("The tab was blocked. Allow popups for this site and try again.");
     } catch (e: any) {
       const msg = e?.message || "Could not open the billing portal.";
       setError(msg);
       Alert.alert("Billing portal", msg);
+    }
+  };
+
+  /** Sheet closed: provider sign-in aborts its poll; portal just closes. */
+  const handleSheetCancel = (openedExternally: boolean) => {
+    const kind = sheet?.kind;
+    setSheet(null);
+    if (kind === "auth" && !openedExternally) {
+      stopPoll();
+      setAuthPending(false);
+      setStatusMsg("");
     }
   };
 
@@ -328,6 +377,13 @@ export default function ConnectAuthorize() {
           </View>
         )}
       </ScrollView>
+
+      {/* ── In-app provider sign-in / billing portal ── */}
+      <CheckoutSheet
+        request={sheet?.req ?? null}
+        onSuccess={() => {}}
+        onCancel={handleSheetCancel}
+      />
     </SafeAreaView>
   );
 }
@@ -335,7 +391,7 @@ export default function ConnectAuthorize() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#060D1C", position: "relative" },
   backgroundImage: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, width: "100%", height: "100%" },
-  scrollContent: { padding: SCREEN_WIDTH < 400 ? 16 : 20, gap: 14 },
+  scrollContent: { width: "100%", maxWidth: 720, alignSelf: "center", padding: SCREEN_WIDTH < 400 ? 16 : 20, gap: 14 },
   headerContainer: { marginBottom: 4 },
   backBtn: { backgroundColor: "#1E293B", padding: SCREEN_WIDTH < 400 ? 8 : 10, borderRadius: SCREEN_WIDTH < 400 ? 8 : 10, marginRight: 12 },
   headerTitle: { color: "#FFFFFF", fontSize: SCREEN_WIDTH < 400 ? 24 : 28, fontWeight: "900", letterSpacing: 0.5 },

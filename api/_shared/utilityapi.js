@@ -334,8 +334,7 @@ exports.linkForProperty = async ({ formUid }) => {
 };
 
 /** Refresh bills for a single already-linked meter. */
-exports.refreshMeter = async ({ meterUid }) => {
-  await activateMeters([meterUid]);
+exports.refreshMeter = async ({ meterUid }) => {  await activateMeters([meterUid]);
   const { ready, states } = await waitForBills([meterUid], 20);
   if (!ready) {
     throw new ApiError(
@@ -352,6 +351,22 @@ exports.refreshMeter = async ({ meterUid }) => {
     provider: nameForUtility(bill.utility),
     dueDay: billDueDay(bill),
   };
+};
+
+/**
+ * Stop periodic collection for meters (non-destructive: already-synced
+ * bills and intervals are kept, credentials untouched). Revoked/expired
+ * meters are silently ignored by UtilityAPI. Used when a utility's paid
+ * period ends so no further bills collect.
+ */
+exports.stopMeterMonitoring = async (meterUids) => {
+  const list = (meterUids || []).map(String).filter(Boolean);
+  if (list.length === 0) return { stopped: [] };
+  await api("/meters/ongoing-monitoring", {
+    method: "POST",
+    body: JSON.stringify({ meters: list, frequency: "off" }),
+  });
+  return { stopped: list };
 };
 
 exports.ApiError = ApiError;

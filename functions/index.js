@@ -308,6 +308,17 @@ function meterLimit() {
   return Number.isFinite(n) && n > 0 ? n : 10;
 }
 
+/** Collect every linked meter uid on a utility: legacy single + meters[]. */
+function eachLinkedMeterUid(u, cb) {
+  if (!u || typeof u !== "object") return;
+  if (u.meterUid) cb(String(u.meterUid));
+  if (Array.isArray(u.meters)) {
+    u.meters.forEach((m) => {
+      if (m && m.meterUid) cb(String(m.meterUid));
+    });
+  }
+}
+
 /** Count the user's currently linked (unique) utility meter uids. */
 async function countLinkedMeters(uid) {
   const snap = await db.collection("properties").where("ownerId", "==", uid).get();
@@ -315,7 +326,7 @@ async function countLinkedMeters(uid) {
   snap.docs.forEach((doc) => {
     const utilities = doc.data()?.utilities || {};
     Object.values(utilities).forEach((u) => {
-      if (u && u.meterUid) seen.add(String(u.meterUid));
+      eachLinkedMeterUid(u, (id) => seen.add(id));
     });
   });
   return { count: seen.size, meterUids: seen };

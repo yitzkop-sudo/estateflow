@@ -6,8 +6,9 @@ import {
   Alert,
   Dimensions,
   Image,
+  Modal,
+  Platform,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,6 +16,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { CheckoutSheet, isCheckoutSheetAvailable, type CheckoutRequest } from "../components/checkout-sheet";
 import { auth } from "../lib/firebase";
 import { openExternalUrl } from "../lib/openExternal";
 import {
@@ -66,6 +69,7 @@ export default function Subscriptions() {
   const [payingKey, setPayingKey] = useState<UtilityKey | null>(null);
   const [paidPendingKey, setPaidPendingKey] = useState<UtilityKey | null>(null);
   const [cancellingKey, setCancellingKey] = useState<UtilityKey | null>(null);
+  const [showUnsubscribed, setShowUnsubscribed] = useState(false);
   const [cards, setCards] = useState<BillingCard[] | null>(null);
   const [profile, setProfile] = useState<BillingProfile | null>(null);
   const [editingProfile, setEditingProfile] = useState(false);
@@ -75,6 +79,11 @@ export default function Subscriptions() {
   const [billingLoading, setBillingLoading] = useState(true);
   const [addingCard, setAddingCard] = useState(false);
   const [cardBusyId, setCardBusyId] = useState<string | null>(null);
+  const [checkout, setCheckout] = useState<
+    (CheckoutRequest & { key?: UtilityKey; mode: "sub" | "setup"; beforeCount?: number }) | null
+  >(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<BillingInvoice | null>(null);
+  const [showAllInvoices, setShowAllInvoices] = useState(false);
 
   const hasBillingAccount = cards !== null || profile !== null || invoices !== null;
 
@@ -186,16 +195,8 @@ export default function Subscriptions() {
     [load, loadBilling]
   );
 
-  const handleAddCard = async () => {
-    setAddingCard(true);
-    setError(null);
-    try {
-      const before = cards?.length ?? 0;
-      const opened = await openExternalUrl(async () => (await startCardSetup()).url);
-      if (!opened) {
-        setError("The tab was blocked. Allow popups for this site and try again.");
-        return;
-      }
+  const pollForNewCard = useCallback(
+    async (before: number) => {
       // The new card lands a few seconds after setup completes — poll briefly.
       for (let i = 0; i < 12; i++) {
         await new Promise((r) => setTimeout(r, 5000));
@@ -208,6 +209,34 @@ export default function Subscriptions() {
         }
       }
       loadBilling();
+    },
+    [loadBilling]
+  );
+
+  const handleAddCard = async () => {
+    setAddingCard(true);
+    setError(null);
+    try {
+      const before = cards?.length ?? 0;
+      if (Platform.OS !== "web" && isCheckoutSheetAvailable()) {
+        const { url } = await startCardSetup();
+        setCheckout({
+          url,
+          title: "Add card",
+          subtitle: "Secure Stripe setup · no charge",
+          successMarkers: ["billing=setup"],
+          cancelMarkers: ["billing=canceled"],
+          mode: "setup",
+          beforeCount: before,
+        });
+        return;
+      }
+      const opened = await openExternalUrl(async () => (await startCardSetup()).url);
+      if (!opened) {
+        setError("The tab was blocked. Allow popups for this site and try again.");
+        return;
+      }
+      await pollForNewCard(before);
     } catch (e: any) {
       const msg = e?.message || "Could not start card setup.";
       setError(msg);
@@ -280,10 +309,14 @@ export default function Subscriptions() {
     }
   };
 
-  const handleOpenInvoice = async (inv: BillingInvoice) => {
+  const handleOpenInvoice = (inv: BillingInvoice) => {
+    setSelectedInvoice(inv);
+  };
+
+  const handleOpenInvoiceExternally = async (inv: BillingInvoice) => {
     const url = inv.hostedUrl || inv.pdfUrl;
     if (!url) {
-      Alert.alert("Receipt", "No receipt link available for this invoice yet.");
+      Alert.alert("Receipt", "No Stripe link available for this invoice yet.");
       return;
     }
     try {
@@ -311,6 +344,20 @@ export default function Subscriptions() {
   );
 
   const coveredCount = UTILITY_KEYS.filter((k) => covered(k)).length;
+
+  // Only subscribed utilities get full cards — the rest hide behind a
+  // collapsed toggle. Keys with a checkout in flight stay visible.
+  const subscribedKeys = UTILITY_KEYS.filter(
+    (k) => covered(k) || payingKey === k || paidPendingKey === k
+  );
+  const unsubscribedKeys = UTILITY_KEYS.filter(
+    (k) => !covered(k) && payingKey !== k && paidPendingKey !== k
+  );
+
+  // Invoice history: show 5 by default with a view-all toggle.
+  const allInvoices = invoices || [];
+  const visibleInvoices = showAllInvoices ? allInvoices : allInvoices.slice(0, 5);
+  const hiddenInvoiceCount = allInvoices.length - visibleInvoices.length;
 
   // Watch a just-paid key until Stripe confirms it, then reload the list.
   const startPayPoll = useCallback(
@@ -347,6 +394,23 @@ export default function Subscriptions() {
     setPayingKey(key);
     setError(null);
     try {
+      if (Platform.OS !== "web" && isCheckoutSheetAvailable()) {
+        const res = await startUtilitySubscription(key);
+        if (res.alreadyActive) {
+          await load(false);
+          return;
+        }
+        setCheckout({
+          url: res.url,
+          title: `Subscribe · ${key}`,
+          subtitle: "$20/mo · secure Stripe checkout",
+          successMarkers: ["utility=subscribed"],
+          cancelMarkers: ["utility=canceled"],
+          key,
+          mode: "sub",
+        });
+        return;
+      }
       let alreadyActive = false;
       const opened = await openExternalUrl(async () => {
         const res = await startUtilitySubscription(key);
@@ -373,22 +437,99 @@ export default function Subscriptions() {
     }
   };
 
-  const handleManage = async () => {
-    setError(null);
-    try {
-      const opened = await openExternalUrl(async () => {
-        if (subStatus?.portalUrl) return subStatus.portalUrl;
-        const s = await getUtilitySubscriptionStatus();
-        setSubStatus(s);
-        if (!s?.portalUrl) throw new Error("No billing portal link available yet.");
-        return s.portalUrl;
-      });
-      if (!opened) setError("The tab was blocked. Allow popups for this site and try again.");
-    } catch (e: any) {
-      const msg = e?.message || "Could not open the billing portal.";
-      setError(msg);
-      Alert.alert("Billing portal", msg);
+  /**
+   * In-app sheet result. "poll" = payment seen (or a browser tab was opened
+   * as fallback) → watch for confirmation. "refresh" = closed unpaid →
+   * just re-read status so a completed payment still heals into view.
+   */
+  const handleCheckoutResult = (action: "poll" | "refresh") => {
+    const req = checkout;
+    setCheckout(null);
+    if (!req) return;
+    if (req.mode === "setup") {
+      if (action === "poll") void pollForNewCard(req.beforeCount ?? 0);
+      else loadBilling();
+      return;
     }
+    if (action === "poll" && req.key) {
+      setPaidPendingKey(req.key);
+      startPayPoll(req.key);
+    } else {
+      load(false);
+    }
+  };
+
+  const renderUtilityCard = (key: UtilityKey) => {
+    const meta = UTILITY_META[key];
+    const isCovered = covered(key);
+    const paying = payingKey === key;
+    const waiting = paidPendingKey === key;
+    const periodEnd = subStatus?.subscriptions?.[key]?.currentPeriodEnd;
+    const cancelAtEnd = !!subStatus?.subscriptions?.[key]?.cancelAtPeriodEnd;
+    const cancelling = cancellingKey === key;
+    return (
+      <View key={key} style={styles.cardSection}>
+        <View style={styles.utilityRow}>
+          <View style={[styles.utilityIconChip, { backgroundColor: `${meta.color}22` }]}>
+            <Feather name={meta.icon} size={18} color={meta.color} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.utilityLabel}>{key}</Text>
+            <Text style={[styles.statusText, isCovered && styles.statusActive]}>
+              {!isCovered
+                ? "Not subscribed"
+                : cancelAtEnd
+                  ? `Cancels ${periodEnd ? new Date(periodEnd).toLocaleDateString() : "soon"} · $20/mo until then`
+                  : "Active · $20/mo"}
+              {isCovered && !cancelAtEnd && periodEnd
+                ? ` · renews ${new Date(periodEnd).toLocaleDateString()}`
+                : ""}
+            </Text>
+          </View>
+          <View style={[styles.statusPill, isCovered && !cancelAtEnd ? styles.pillOn : styles.pillOff]}>
+            <Text style={[styles.pillText, isCovered && !cancelAtEnd ? styles.pillTextOn : styles.pillTextOff]}>
+              {isCovered && !cancelAtEnd ? "ON" : isCovered ? "ENDS" : "OFF"}
+            </Text>
+          </View>
+        </View>
+        {isCovered ? (
+          <TouchableOpacity
+            style={[styles.cancelButton, cancelling && { opacity: 0.6 }]}
+            onPress={() => (cancelAtEnd ? handleCancel(key, true) : confirmCancel(key))}
+            disabled={cancelling}
+          >
+            {cancelling ? (
+              <ActivityIndicator size="small" color="#F87171" />
+            ) : (
+              <Text style={styles.cancelText}>
+                {cancelAtEnd ? "Keep subscription" : "Cancel subscription"}
+              </Text>
+            )}
+          </TouchableOpacity>
+        ) : null}
+        {waiting ? (
+          <View style={styles.waitingRow}>
+            <ActivityIndicator size="small" color="#34D399" />
+            <Text style={styles.waitingText}>Confirming payment…</Text>
+          </View>
+        ) : !isCovered ? (
+          <TouchableOpacity
+            style={[styles.subscribeButton, paying && { opacity: 0.7 }]}
+            onPress={() => handleSubscribe(key)}
+            disabled={paying}
+          >
+            {paying ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Feather name="lock" size={15} color="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text style={styles.subscribeText}>Subscribe · $20/mo</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    );
   };
 
   return (
@@ -410,7 +551,7 @@ export default function Subscriptions() {
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Subscriptions</Text>
           </View>
-          <Text style={styles.headerSubtitle}>One $20/mo subscription per utility — manage each below.</Text>
+          <Text style={styles.headerSubtitle}>Your active utility subscriptions — manage each below.</Text>
         </View>
 
         {error ? (
@@ -441,86 +582,33 @@ export default function Subscriptions() {
                   </Text>
                 </View>
               </View>
-              {subStatus?.active ? (
-                <TouchableOpacity style={styles.portalButton} onPress={handleManage}>
-                  <Feather name="settings" size={15} color="#60A5FA" style={{ marginRight: 8 }} />
-                  <Text style={styles.portalButtonText}>Manage billing (cancel, invoices)</Text>
-                </TouchableOpacity>
-              ) : null}
             </View>
 
-            {UTILITY_KEYS.map((key) => {
-              const meta = UTILITY_META[key];
-              const isCovered = covered(key);
-              const paying = payingKey === key;
-              const waiting = paidPendingKey === key;
-              const periodEnd = subStatus?.subscriptions?.[key]?.currentPeriodEnd;
-              const cancelAtEnd = !!subStatus?.subscriptions?.[key]?.cancelAtPeriodEnd;
-              const cancelling = cancellingKey === key;
-              return (
-                <View key={key} style={styles.cardSection}>
-                  <View style={styles.utilityRow}>
-                    <View style={[styles.utilityIconChip, { backgroundColor: `${meta.color}22` }]}>
-                      <Feather name={meta.icon} size={18} color={meta.color} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.utilityLabel}>{key}</Text>
-                      <Text style={[styles.statusText, isCovered && styles.statusActive]}>
-                        {!isCovered
-                          ? "Not subscribed"
-                          : cancelAtEnd
-                            ? `Cancels ${periodEnd ? new Date(periodEnd).toLocaleDateString() : "soon"} · $20/mo until then`
-                            : "Active · $20/mo"}
-                        {isCovered && !cancelAtEnd && periodEnd
-                          ? ` · renews ${new Date(periodEnd).toLocaleDateString()}`
-                          : ""}
-                      </Text>
-                    </View>
-                    <View style={[styles.statusPill, isCovered && !cancelAtEnd ? styles.pillOn : styles.pillOff]}>
-                      <Text style={[styles.pillText, isCovered && !cancelAtEnd ? styles.pillTextOn : styles.pillTextOff]}>
-                        {isCovered && !cancelAtEnd ? "ON" : isCovered ? "ENDS" : "OFF"}
-                      </Text>
-                    </View>
-                  </View>
-                  {isCovered ? (
-                    <TouchableOpacity
-                      style={[styles.cancelButton, cancelling && { opacity: 0.6 }]}
-                      onPress={() => (cancelAtEnd ? handleCancel(key, true) : confirmCancel(key))}
-                      disabled={cancelling}
-                    >
-                      {cancelling ? (
-                        <ActivityIndicator size="small" color="#F87171" />
-                      ) : (
-                        <Text style={styles.cancelText}>
-                          {cancelAtEnd ? "Keep subscription" : "Cancel subscription"}
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  ) : null}
-                  {waiting ? (
-                    <View style={styles.waitingRow}>
-                      <ActivityIndicator size="small" color="#34D399" />
-                      <Text style={styles.waitingText}>Confirming payment…</Text>
-                    </View>
-                  ) : !isCovered ? (
-                    <TouchableOpacity
-                      style={[styles.subscribeButton, paying && { opacity: 0.7 }]}
-                      onPress={() => handleSubscribe(key)}
-                      disabled={paying}
-                    >
-                      {paying ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                      ) : (
-                        <>
-                          <Feather name="lock" size={15} color="#FFFFFF" style={{ marginRight: 8 }} />
-                          <Text style={styles.subscribeText}>Subscribe · $20/mo</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-              );
-            })}
+            {subscribedKeys.map((key) => renderUtilityCard(key))}
+
+            {subscribedKeys.length === 0 && (
+              <View style={styles.cardSection}>
+                <Text style={styles.utilityLabel}>No active subscriptions</Text>
+                <Text style={styles.finePrintLeft}>
+                  Nothing is covered right now. Expand below to subscribe to a utility.
+                </Text>
+              </View>
+            )}
+
+            {unsubscribedKeys.length > 0 && (
+              <TouchableOpacity
+                style={styles.collapsedToggle}
+                onPress={() => setShowUnsubscribed((v) => !v)}
+              >
+                <Feather name={showUnsubscribed ? "chevron-up" : "plus"} size={15} color="#60A5FA" style={{ marginRight: 8 }} />
+                <Text style={styles.collapsedToggleText}>
+                  {showUnsubscribed
+                    ? "Hide unsubscribed utilities"
+                    : `Subscribe to another utility (${unsubscribedKeys.length})`}
+                </Text>
+              </TouchableOpacity>
+            )}
+            {showUnsubscribed && unsubscribedKeys.map((key) => renderUtilityCard(key))}
 
             {/* ── Payment methods ── */}
             <View style={styles.cardSection}>
@@ -740,7 +828,8 @@ export default function Subscriptions() {
               ) : (invoices || []).length === 0 ? (
                 <Text style={styles.finePrintLeft}>No invoices yet.</Text>
               ) : (
-                (invoices || []).map((inv) => {
+                <>
+                  {visibleInvoices.map((inv) => {
                   const paid = inv.status === "paid";
                   const open = inv.status === "open" || inv.status === "draft";
                   return (
@@ -756,7 +845,7 @@ export default function Subscriptions() {
                       </View>
                       <View style={{ alignItems: "flex-end" }}>
                         <Text style={styles.invoiceAmount}>{money(inv.amountPaid || inv.amountDue, inv.currency)}</Text>
-                        <View style={[styles.invPill, paid ? styles.invPaid : open ? styles.invOpen : styles.invOther]}>
+                  <View style={[styles.invPill, paid ? styles.invPaid : open ? styles.invOpen : styles.invOther]}>
                           <Text style={[styles.invPillText, paid ? styles.invPaidText : open ? styles.invOpenText : styles.invOtherText]}>
                             {paid ? "PAID" : inv.status.toUpperCase()}
                           </Text>
@@ -765,17 +854,129 @@ export default function Subscriptions() {
                       <Feather name="chevron-right" size={16} color="#64748B" />
                     </TouchableOpacity>
                   );
-                })
+                })}
+                  {hiddenInvoiceCount > 0 && (
+                    <TouchableOpacity
+                      style={styles.invViewAllBtn}
+                      onPress={() => setShowAllInvoices(true)}
+                    >
+                      <Text style={styles.invViewAllText}>
+                        View all ({hiddenInvoiceCount} more)
+                      </Text>
+                      <Feather name="chevron-down" size={14} color="#60A5FA" />
+                    </TouchableOpacity>
+                  )}
+                  {showAllInvoices && allInvoices.length > 5 && (
+                    <TouchableOpacity
+                      style={styles.invViewAllBtn}
+                      onPress={() => setShowAllInvoices(false)}
+                    >
+                      <Text style={styles.invViewAllText}>Show less</Text>
+                      <Feather name="chevron-up" size={14} color="#60A5FA" />
+                    </TouchableOpacity>
+                  )}
+                </>
               )}
             </View>
 
             <Text style={styles.finePrint}>
-              Cancel anytime from billing management — already-linked meters keep their last synced data, and you can always enter bills manually for free.
+              Cancel anytime per utility above — already-linked meters keep their last synced data, and you can always enter bills manually for free.
             </Text>
           </>
         )}
       </ScrollView>
+
+      {/* ── In-app invoice receipt ── */}
+      <Modal
+        visible={selectedInvoice !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedInvoice(null)}
+      >
+        <View style={styles.invModalOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            onPress={() => setSelectedInvoice(null)}
+            activeOpacity={1}
+          />
+          {selectedInvoice && (() => {
+            const inv = selectedInvoice;
+            const paid = inv.status === "paid";
+            const open = inv.status === "open" || inv.status === "draft";
+            const balance = Math.max(0, (inv.amountDue || 0) - (inv.amountPaid || 0));
+            const billedTo = [profile?.name, profile?.email].filter(Boolean).join(" · ");
+            return (
+              <View style={styles.invModalCard}>
+                <View style={styles.invModalHeader}>
+                  <Text style={styles.invModalTitle}>Receipt</Text>
+                  <TouchableOpacity onPress={() => setSelectedInvoice(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Feather name="x" size={20} color="#94A3B8" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={{ alignItems: "center", marginBottom: 16 }}>
+                  <Text style={styles.invModalAmount}>
+                    {money(inv.amountPaid || inv.amountDue, inv.currency)}
+                  </Text>
+                  <View style={[styles.invPill, { alignSelf: "center" }, paid ? styles.invPaid : open ? styles.invOpen : styles.invOther]}>
+                    <Text style={[styles.invPillText, paid ? styles.invPaidText : open ? styles.invOpenText : styles.invOtherText]}>
+                      {paid ? "PAID" : inv.status.toUpperCase()}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.invModalDivider} />
+                <InvoiceDetailRow label="Invoice" value={inv.number || inv.description || "—"} />
+                <InvoiceDetailRow
+                  label="Date"
+                  value={inv.created ? new Date(inv.created).toLocaleDateString() : "—"}
+                />
+                {inv.description ? (
+                  <InvoiceDetailRow label="Description" value={inv.description} />
+                ) : null}
+                <InvoiceDetailRow label="Amount due" value={money(inv.amountDue, inv.currency)} />
+                <InvoiceDetailRow label="Amount paid" value={money(inv.amountPaid, inv.currency)} />
+                {balance > 0 && (
+                  <InvoiceDetailRow label="Balance" value={money(balance, inv.currency)} />
+                )}
+                {billedTo ? <InvoiceDetailRow label="Billed to" value={billedTo} /> : null}
+
+                <TouchableOpacity
+                  style={styles.invModalPrimaryBtn}
+                  onPress={() => setSelectedInvoice(null)}
+                >
+                  <Text style={styles.invModalPrimaryText}>Done</Text>
+                </TouchableOpacity>
+                {(inv.hostedUrl || inv.pdfUrl) && (
+                  <TouchableOpacity
+                    style={styles.invModalLinkBtn}
+                    onPress={() => handleOpenInvoiceExternally(inv)}
+                  >
+                    <Text style={styles.invModalLinkText}>View in Stripe</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })()}
+        </View>
+      </Modal>
+
+      {/* ── In-app Stripe checkout sheet ── */}
+      <CheckoutSheet
+        request={checkout}
+        onSuccess={() => handleCheckoutResult("poll")}
+        onCancel={(openedExternally) => handleCheckoutResult(openedExternally ? "poll" : "refresh")}
+      />
     </SafeAreaView>
+  );
+}
+
+function InvoiceDetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.invModalRow}>
+      <Text style={styles.invModalLabel}>{label}</Text>
+      <Text style={styles.invModalValue} numberOfLines={2}>{value}</Text>
+    </View>
   );
 }
 
@@ -792,7 +993,7 @@ function ProfileLine({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#060D1C", position: "relative" },
   backgroundImage: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, width: "100%", height: "100%" },
-  scrollContent: { padding: SCREEN_WIDTH < 400 ? 16 : 20, gap: 14, paddingBottom: 40 },
+  scrollContent: { width: "100%", maxWidth: 720, alignSelf: "center", padding: SCREEN_WIDTH < 400 ? 16 : 20, gap: 14, paddingBottom: 40 },
   headerContainer: { marginBottom: 4 },
   backBtn: { backgroundColor: "#1E293B", padding: SCREEN_WIDTH < 400 ? 8 : 10, borderRadius: SCREEN_WIDTH < 400 ? 8 : 10, marginRight: 12 },
   headerTitle: { color: "#FFFFFF", fontSize: SCREEN_WIDTH < 400 ? 24 : 28, fontWeight: "900", letterSpacing: 0.5 },
@@ -804,8 +1005,8 @@ const styles = StyleSheet.create({
   summaryIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(59,130,246,0.14)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(59,130,246,0.22)" },
   summaryTitle: { color: "#FFFFFF", fontSize: SCREEN_WIDTH < 400 ? 15 : 17, fontWeight: "900" },
   summarySubtitle: { color: "#94A3B8", fontSize: SCREEN_WIDTH < 400 ? 12 : 13, fontWeight: "600", marginTop: 2 },
-  portalButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 12, padding: 12, borderRadius: 14, backgroundColor: "rgba(59,130,246,0.10)", borderWidth: 1, borderColor: "rgba(59,130,246,0.25)" },
-  portalButtonText: { color: "#60A5FA", fontSize: 13, fontWeight: "800" },
+  collapsedToggle: { flexDirection: "row", alignItems: "center", justifyContent: "center", padding: 13, borderRadius: 14, backgroundColor: "rgba(59,130,246,0.08)", borderWidth: 1, borderColor: "rgba(59,130,246,0.22)" },
+  collapsedToggleText: { color: "#60A5FA", fontSize: 13, fontWeight: "800" },
   utilityRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   utilityIconChip: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   utilityLabel: { color: "#FFFFFF", fontSize: 15, fontWeight: "900" },
@@ -857,4 +1058,19 @@ const styles = StyleSheet.create({
   invPaidText: { color: "#34D399" },
   invOpenText: { color: "#FBBF24" },
   invOtherText: { color: "#94A3B8" },
+  invViewAllBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, padding: 12, marginTop: 8, borderRadius: 14, backgroundColor: "rgba(59,130,246,0.08)", borderWidth: 1, borderColor: "rgba(59,130,246,0.22)" },
+  invViewAllText: { color: "#60A5FA", fontSize: 13, fontWeight: "800" },
+  invModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", padding: 24 },
+  invModalCard: { width: "100%", maxWidth: 480, alignSelf: "center", backgroundColor: "rgba(15,23,42,0.98)", borderRadius: 24, padding: 22, borderWidth: 1, borderColor: "rgba(59,130,246,0.22)" },
+  invModalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  invModalTitle: { color: "#FFFFFF", fontSize: 19, fontWeight: "900" },
+  invModalAmount: { color: "#FFFFFF", fontSize: 34, fontWeight: "900", letterSpacing: -0.5 },
+  invModalDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.08)", marginBottom: 6 },
+  invModalRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" },
+  invModalLabel: { color: "#64748B", fontSize: 12, fontWeight: "700", paddingTop: 1 },
+  invModalValue: { color: "#E2E8F0", fontSize: 13, fontWeight: "700", flex: 1, textAlign: "right" },
+  invModalPrimaryBtn: { alignItems: "center", padding: 13, borderRadius: 14, marginTop: 18, backgroundColor: "#2563EB" },
+  invModalPrimaryText: { color: "#FFFFFF", fontSize: 15, fontWeight: "900" },
+  invModalLinkBtn: { alignItems: "center", padding: 12, marginTop: 2 },
+  invModalLinkText: { color: "#60A5FA", fontSize: 13, fontWeight: "700" },
 });

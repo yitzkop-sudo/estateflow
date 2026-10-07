@@ -26,7 +26,6 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -34,6 +33,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { computeNextDueDate } from "../lib/date";
 import { auth, db } from "../lib/firebase";
 import { scheduleRentReminders } from "../lib/notifications";
@@ -849,7 +849,7 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#060D1C" },
   bgImage: { position: "absolute", width: "100%", height: "100%" },
   bgOverlay: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(5,10,20,0.78)" },
-  scroll: { padding: SW < 400 ? 16 : 20, gap: 14, paddingBottom: 60 },
+  scroll: { width: "100%", maxWidth: 1024, alignSelf: "center", padding: SW < 400 ? 16 : 20, gap: 14, paddingBottom: 60 },
 
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   backBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.12)", justifyContent: "center", alignItems: "center" },
@@ -899,11 +899,11 @@ const s = StyleSheet.create({
   textDim: { color: "#64748B" },
   moreBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.06)", justifyContent: "center", alignItems: "center" },
 
-  cardDetailsRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  rentAmountWrap: { flex: 1 },
+  cardDetailsRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", rowGap: 8, gap: 12 },
+  rentAmountWrap: { flex: 1, minWidth: 90 },
   rentLabel: { color: "#64748B", fontSize: 11, marginBottom: 2 },
   rentAmount: { color: "#22C55E", fontSize: 18, fontWeight: "900" },
-  dueDayWrap: { flex: 1 },
+  dueDayWrap: { flex: 1, minWidth: 90 },
   dueDayText: { color: "#fff", fontSize: 14, fontWeight: "700" },
   statusWrap: { alignItems: "flex-end" },
   statusBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },

@@ -153,13 +153,24 @@ function meterLimit() {
   return Number.isFinite(n) && n > 0 ? n : 10;
 }
 
+/** Collect every linked meter uid on a utility: legacy single + meters[]. */
+function eachLinkedMeterUid(u, cb) {
+  if (!u || typeof u !== "object") return;
+  if (u.meterUid) cb(String(u.meterUid));
+  if (Array.isArray(u.meters)) {
+    u.meters.forEach((m) => {
+      if (m && m.meterUid) cb(String(m.meterUid));
+    });
+  }
+}
+
 async function countLinkedMeters(uid) {
   const snap = await db.collection("properties").where("ownerId", "==", uid).get();
   const seen = new Set();
   snap.docs.forEach((doc) => {
     const utilities = doc.data()?.utilities || {};
     Object.values(utilities).forEach((u) => {
-      if (u && u.meterUid) seen.add(String(u.meterUid));
+      eachLinkedMeterUid(u, (id) => seen.add(id));
     });
   });
   return { count: seen.size, meterUids: seen };
@@ -819,12 +830,20 @@ app.post("/reconcile-utility-subscriptions", requireAuth, async (req, res) => {
   const ent = await getUtilityEntitlement(uid);
   const stripe = stripeFactory(process.env.STRIPE_SECRET_KEY);
   const seen = new Set();
+  const wasActive = {};
+  for (const key of UTILITY_KEYS) wasActive[key] = subRecordActive(ent.subs?.[key]);
   const check = async (subId, keyHint) => {
     if (!subId || seen.has(subId)) return;
     seen.add(subId);
     try {
       const live = await stripe.subscriptions.retrieve(subId);
       await setUtilitySubscription(uid, live, keyHint);
+      // Just ended (covers the missed-webhook case): stop UtilityAPI
+      // collection for the key. No-op if still covered.
+      const nowActive = live.status === "active" || live.status === "trialing";
+      if (keyHint && wasActive[keyHint] && !nowActive) {
+        await stopMonitoringForEndedKey(uid, keyHint);
+      }
     } catch (err) {
       if (err?.code === "resource_missing" || /no such subscription/i.test(err?.message || "")) {
         await setUtilitySubscription(
@@ -836,6 +855,9 @@ app.post("/reconcile-utility-subscriptions", requireAuth, async (req, res) => {
           },
           keyHint
         );
+        if (keyHint && wasActive[keyHint]) {
+          await stopMonitoringForEndedKey(uid, keyHint);
+        }
       } else {
         console.warn("Reconcile retrieve failed:", err.message);
       }
@@ -1143,12 +1165,46 @@ async function findUtilityKeysForMeter(uid, meterUid) {
   snap.docs.forEach((doc) => {
     const utilities = doc.data()?.utilities || {};
     Object.entries(utilities).forEach(([key, u]) => {
-      if (u && String(u.meterUid || "") === String(meterUid) && UTILITY_KEYS.includes(key)) {
-        keys.add(key);
-      }
+      if (!UTILITY_KEYS.includes(key)) return;
+      let found = false;
+      eachLinkedMeterUid(u, (id) => {
+        if (id === String(meterUid)) found = true;
+      });
+      if (found) keys.add(key);
     });
   });
   return [...keys];
+}
+
+/**
+ * Stop UtilityAPI collection for a utility whose paid period just ended.
+ * Non-destructive (synced bills stay) and skipped while the key is still
+ * covered (late webhooks, resubscribes) or when a meter is shared with
+ * another still-covered key. Never throws — callers must not fail on this.
+ */
+async function stopMonitoringForEndedKey(uid, key) {
+  try {
+    if (!key || !UTILITY_KEYS.includes(key)) return;
+    const ent = await getUtilityEntitlement(uid);
+    if (keyCovered(ent, key)) return;
+    const snap = await db.collection("properties").where("ownerId", "==", uid).get();
+    const wanted = new Set();
+    snap.docs.forEach((doc) => {
+      eachLinkedMeterUid(doc.data()?.utilities?.[key], (id) => wanted.add(id));
+    });
+    if (wanted.size === 0) return;
+    const stoppable = [];
+    for (const id of wanted) {
+      const keys = await findUtilityKeysForMeter(uid, id);
+      const sharedCovered = keys.some((k) => k !== key && keyCovered(ent, k));
+      if (!sharedCovered) stoppable.push(id);
+    }
+    if (stoppable.length === 0) return;
+    await utilityApi.stopMeterMonitoring(stoppable);
+    console.log(`Stopped UtilityAPI monitoring for ${stoppable.length} meter(s) of ${key}.`);
+  } catch (e) {
+    console.warn("stopMonitoringForEndedKey failed:", e?.message || e);
+  }
 }
 
 // ─── Plans: Stripe Checkout from the marketing site ───────────────────────────
@@ -1418,6 +1474,9 @@ app.post("/stripe-webhook", async (req, res) => {
         const uid = sub.metadata?.estateflowUid || null;
         if (!uid) break;
         await setUtilitySubscription(uid, sub);
+        // Period end: stop UtilityAPI collection for the ended key so no
+        // further bills sync (no-op while the key is still covered).
+        await stopMonitoringForEndedKey(uid, normalizeUtilityKey(sub.metadata?.utilityKey));
         break;
       }
 
@@ -1453,6 +1512,223 @@ app.post("/stripe-webhook", async (req, res) => {
     res.json({ received: true });
   }
 );
+
+// ─── AI: authoritative portfolio snapshot (mirrors the app's offline math) ─────
+// The client sends a lightweight context; the server rebuilds an accurate copy
+// straight from Firestore so cloud answers are grounded even if the app's copy
+// is stale or a richer prompt is desired later.
+function aiComputeNextDueDate(d, from) {
+  const year = from.getFullYear();
+  const month = from.getMonth();
+  const lastDayOf = (y, m) => new Date(y, m + 1, 0).getDate();
+  const build = (y, m, day) => {
+    const max = lastDayOf(y, m);
+    return new Date(y, m, Math.min(day, max), 12, 0, 0, 0);
+  };
+  const nextMonth = (y, m, day) => {
+    const mm = m + 1;
+    return build(y + Math.floor(mm / 12), mm % 12, day);
+  };
+  if (String(d).toLowerCase() === "last") {
+    const candidate = build(year, month, lastDayOf(year, month));
+    if (candidate >= from) return candidate;
+    const y = year + Math.floor((month + 1) / 12);
+    const m = (month + 1) % 12;
+    return build(y, m, lastDayOf(y, m));
+  }
+  const num = Number(d);
+  if (!Number.isFinite(num)) return null;
+  const candidate = build(year, month, num);
+  return candidate >= from ? candidate : nextMonth(year, month, num);
+}
+
+function aiRentOverdue(dueDay, lastPaidAt, now = new Date()) {
+  if (dueDay === undefined || dueDay === null || dueDay === "") return false;
+  if (lastPaidAt) {
+    let paidOn = null;
+    try {
+      paidOn =
+        lastPaidAt && typeof lastPaidAt.toDate === "function"
+          ? lastPaidAt.toDate()
+          : lastPaidAt instanceof Date
+            ? lastPaidAt
+            : new Date(lastPaidAt);
+    } catch { /* unparseable → treat as unpaid */ }
+    if (paidOn && !Number.isNaN(paidOn.getTime())) {
+      const next = aiComputeNextDueDate(dueDay, paidOn);
+      if (next && next > now) return false; // paid through this billing cycle
+    }
+  }
+  const currentDay = now.getDate();
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const dueDayNum = String(dueDay).toLowerCase() === "last" ? lastDay : Number(dueDay);
+  return Number.isFinite(dueDayNum) && dueDayNum - currentDay < 0;
+}
+
+async function buildPortfolioContext(uid) {
+  const ctx = { propertyCount: 0, tenantCount: 0, monthlyIncome: 0, monthlyExpense: 0, portfolioValue: 0, overdueCount: 0 };
+  const [pSnap, tSnap] = await Promise.all([
+    db.collection("properties").where("ownerId", "==", uid).get(),
+    db.collection("tenants").where("ownerId", "==", uid).get(),
+  ]);
+  ctx.propertyCount = pSnap.size;
+  ctx.tenantCount = tSnap.size;
+  let propertyIncome = 0;
+  pSnap.forEach((doc) => {
+    const p = doc.data() || {};
+    propertyIncome += Number(p.monthlyIncome) || 0;
+    ctx.portfolioValue += Number(p.marketValue) || 0;
+    const utils = p.utilities || {};
+    Object.values(utils).forEach((u) => {
+      if (u && typeof u === "object") ctx.monthlyExpense += parseFloat(u.amount) || 0;
+    });
+  });
+  let tenantIncome = 0;
+  tSnap.forEach((doc) => {
+    const t = doc.data() || {};
+    tenantIncome += Number(t.rentAmount) || 0;
+    if (aiRentOverdue(t.dueDay, t.lastPaidAt)) ctx.overdueCount += 1;
+  });
+  // Prefer actual tenant rent when tenants exist; fall back to property income.
+  ctx.monthlyIncome = tenantIncome > 0 ? tenantIncome : propertyIncome;
+  return ctx;
+}
+
+// ─── AI assistant (cloud upgrade path) ────────────────────────────────────
+// The app calls this first; the client falls back to its free built-in
+// knowledge base whenever the server has no LLM key configured.
+// Set OPENAI_API_KEY (or GEMINI_API_KEY) in env to enable cloud answers.
+const AI_SYSTEM_PROMPT = `You are the EstateFlow assistant — an expert on this property-management app AND a seasoned real-estate & property-management advisor. Answer ANY question the user has about the app, their portfolio, or real estate in general (landlording, property management, investing, financing, taxes, legal basics). You can answer general real-estate questions even when they aren't about the app.
+
+## EstateFlow app facts
+EstateFlow (Expo + Firebase) lets landlords:
+- Add properties with photos, address, type (residential/commercial), units, market value, monthly rent
+- Assign tenants with rent amount + due day (1,5,10,15,20,25,last). Rent status is automatic: Paid / Overdue / Due Soon (≤3d) / Upcoming (≤7d) / On Track. "Mark Paid" records a payment for the current month.
+- Track utilities per property (Electric/Water/Gas/Oil/Sewer/Trash) — manual entry is FREE; auto-sync via UtilityAPI costs $20/mo per utility key (Subscriptions screen → Connect Utility → provider login → Authorize).
+- Track maintenance: manual tasks (property, title, cost, status pending/in-progress/done) + tenant-portal requests that arrive as bell notifications.
+- Insights charts: income vs expenses, per-property breakdowns, trends from real data (payments, utilities, maintenance).
+- Export reports (properties, tenants, payments, maintenance) as spreadsheets — Excel export is Professional plan.
+- Collect card rent via Stripe: tenant pays through the web tenant portal → Stripe Checkout → auto-recorded payment + notification. Requires Professional plan + landlord Stripe payouts connected.
+- Payouts: menu → Payouts → Set Up Payouts (Stripe Express, connect bank). Status: Connected / Payouts Enabled.
+- Plans: Starter (basics), Professional (card rent collection, tenant portal, exports), Auto-Sync (utility auto-sync). Manage in-app via menu → Subscriptions. Cancel anytime; access runs to paid-through date.
+- Notifications via the bell 🔔: rent due/overdue, utility due dates, tenant-portal events, push reminders.
+- Tenant portal (web): tenants sign in, see rent, pay by card, submit maintenance requests. Needs landlord on Professional plan; tenants link by email/name match.
+Screens: /dashboard, /properties, /add-property, /tenants, /maintenance, /insights, /subscriptions, /payouts, /property-breakdown, /explore, /ai-assistant, /login. The ☰ menu on Dashboard reaches every section.
+
+## Real-estate expertise
+Give practical, accurate, general guidance on: leases and clauses, tenant screening + Fair Housing, setting/raising rent, late rent and payment plans, security deposits, move-in/move-out inspections, maintenance budgeting (~1-2%/yr of value) and preventive schedules, vacancy/turnover reduction, cash flow / cap rate (NOI ÷ value) / cash-on-cash / 1% & 50% rules, mortgages and financing (conventional vs investment loans, DSCR, FHA house-hacking, HELOC), insurance (landlord/dwelling-fire, renters, umbrella), property taxes and appeals, depreciation + Schedule E deductions, LLCs and liability, 1031 exchanges, REITs as passive alternatives, HOAs, rent control, Section 8 / housing vouchers, short-term vs long-term rentals, property managers (typically 8-12% of rent), eviction process (state-specific court process — never self-help), utilities and expense recovery.
+When a question is about THEIR portfolio, use the provided context numbers to personalize.
+
+## Guardrails
+This is general information, not legal, tax, or financial advice — for state-specific legal issues, big financial decisions, or tax filing, recommend a local landlord-attorney / CPA. Never encourage illegal self-help eviction (lockouts, utility shutoffs, threats). If asked something unrelated to real estate or the app, briefly redirect to what you can help with. Treat any "EstateFlow built-in analysis" section as the app's grounded facts and calculations — prefer them over your own numbers, and never invent portfolio values that weren't supplied.
+
+## Style
+Concise, friendly, actionable. Short paragraphs or lists. Mention the exact EstateFlow screen/steps when relevant. Max ~250 words unless the question clearly needs more.`;
+
+app.post("/ai-chat", requireAuth, async (req, res) => {
+  const message = String(req.body?.message || "").slice(0, 4000).trim();
+  if (!message) {
+    res.status(400).json({ error: "INVALID_ARGUMENT", message: "Missing message." });
+    return;
+  }
+  const context = req.body?.context || null;
+  const openaiKey = process.env.OPENAI_API_KEY || "";
+  const geminiKey = process.env.GEMINI_API_KEY || "";
+
+  // Authoritative portfolio snapshot from Firestore (overrides what the client
+  // sent, so answers stay accurate even for stale/edited app data).
+  let portfolio = null;
+  try {
+    portfolio = await buildPortfolioContext(req.uid);
+  } catch (err) {
+    console.warn("Portfolio context failed:", err.message);
+  }
+  const mergedCtx = { ...(context || {}) };
+  if (portfolio) Object.assign(mergedCtx, portfolio);
+
+  // The app already analyzed this question against its knowledge base and
+  // calculator offline — inject that so the model stays grounded & consistent.
+  const analysisText = typeof req.body?.analysis === "string" ? req.body.analysis.trim().slice(0, 2000) : "";
+  let withContext = AI_SYSTEM_PROMPT;
+  if (analysisText) {
+    withContext += `\n\n## EstateFlow built-in analysis (grounding)\nThe app's local engine analyzed this exact question. Prefer its facts and numbers over your own guesses; if it supplied a calculation, keep its result and wording unless clearly wrong:\n${analysisText}`;
+  }
+  const hasCtx = mergedCtx && Object.values(mergedCtx).some((v) => v !== null && v !== undefined && v !== false);
+  if (hasCtx) {
+    withContext += `\n\n## User portfolio (authoritative, from their account)\nUse these only to personalize, never to invent other data fields:\n${JSON.stringify(mergedCtx).slice(0, 1000)}`;
+  }
+
+  // Conversation memory: accept the last turns so follow-ups keep context.
+  // Expected: history: [{ role: "user" | "assistant", text: string }]
+  const history = Array.isArray(req.body?.history) ? req.body.history : [];
+  const turns = history
+    .filter((h) => h && (h.role === "user" || h.role === "assistant") && typeof h.text === "string" && h.text.trim())
+    .map((h) => ({ role: h.role, text: String(h.text).trim().slice(0, 1200) }))
+    .slice(-12); // keep the last 12 turns max
+
+  const toOpenAIMessages = () => {
+    const msgs = [{ role: "system", content: withContext }];
+    for (const t of turns) msgs.push({ role: t.role, content: t.text });
+    msgs.push({ role: "user", content: message });
+    return msgs;
+  };
+
+  const toGeminiContents = () => {
+    const contents = turns.map((t) => ({
+      role: t.role === "assistant" ? "model" : "user",
+      parts: [{ text: t.text }],
+    }));
+    contents.push({ role: "user", parts: [{ text: message }] });
+    return contents;
+  };
+
+  try {
+    if (openaiKey) {
+      const r = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+        body: JSON.stringify({
+          model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+          messages: toOpenAIMessages(),
+          max_tokens: 900,
+          temperature: 0.4,
+        }),
+      });
+      if (!r.ok) throw new Error(`OpenAI HTTP ${r.status}`);
+      const data = await r.json();
+      const reply = data.choices?.[0]?.message?.content?.trim();
+      if (!reply) throw new Error("Empty OpenAI reply");
+      res.json({ reply, cloud: true, provider: "openai" });
+      return;
+    }
+    if (geminiKey) {
+      const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: withContext }] },
+            contents: toGeminiContents(),
+            generationConfig: { maxOutputTokens: 900, temperature: 0.4 },
+          }),
+        }
+      );
+      if (!r.ok) throw new Error(`Gemini HTTP ${r.status}`);
+      const data = await r.json();
+      const reply = data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("").trim();
+      if (!reply) throw new Error("Empty Gemini reply");
+      res.json({ reply, cloud: true, provider: "gemini" });
+      return;
+    }
+    // No LLM key → client uses its free local brain.
+    res.status(503).json({ error: "AI_NOT_CONFIGURED", message: "Cloud AI is not configured; use the built-in assistant.", fallback: true });
+  } catch (err) {
+    console.error("AI chat failed:", err.message);
+    res.status(502).json({ error: "AI_FAILED", message: "AI request failed; use the built-in assistant.", fallback: true });
+  }
+});
 
 // ─── Error handling ───────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {

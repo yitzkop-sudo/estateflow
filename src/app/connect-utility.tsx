@@ -5,7 +5,6 @@ import {
   ActivityIndicator,
   Dimensions,
   Image,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { auth } from "../lib/firebase";
 import {
   getSupportedUtilities,
@@ -51,6 +51,20 @@ export default function ConnectUtility() {
   const [providersError, setProvidersError] = useState<string | null>(null);
   const [providerQuery, setProviderQuery] = useState("");
   const [selectedProvider, setSelectedProvider] = useState<SupportedUtility | null>(null);
+  const [providersCollapsed, setProvidersCollapsed] = useState(false);
+
+  const pickProvider = (p: SupportedUtility) => {
+    if (selectedProvider?.uid === p.uid) {
+      // Tapping the selected provider again deselects and restores the list.
+      setSelectedProvider(null);
+      setProvidersCollapsed(false);
+    } else {
+      // Picking a provider collapses the list to just it — "Show all"
+      // brings every provider back.
+      setSelectedProvider(p);
+      setProvidersCollapsed(true);
+    }
+  };
 
   const loadProviders = useCallback(async () => {
     setProvidersLoading(true);
@@ -82,6 +96,10 @@ export default function ConnectUtility() {
         p.uid.toLowerCase().includes(query)
     )
     .slice(0, 60);
+  // A picked provider hides the rest so the choice is unmistakable; the
+  // toggle below restores the full catalog.
+  const visibleProviders =
+    selectedProvider && providersCollapsed ? [selectedProvider] : filteredProviders;
 
   const goNext = () => {
     router.push({
@@ -152,16 +170,23 @@ export default function ConnectUtility() {
                 ) : null}
               </View>
               <Text style={styles.resultCount}>
-                {filteredProviders.length} of {providers.length} providers
-                {selectedProvider ? ` · selected: ${selectedProvider.name}` : ""}
+                {selectedProvider && providersCollapsed
+                  ? `Selected: ${selectedProvider.name}`
+                  : `${filteredProviders.length} of ${providers.length} providers${selectedProvider ? ` · selected: ${selectedProvider.name}` : ""}`}
               </Text>
-              {filteredProviders.map((p) => {
+              {selectedProvider && providersCollapsed ? (
+                <TouchableOpacity style={styles.retryButton} onPress={() => setProvidersCollapsed(false)}>
+                  <Feather name="list" size={13} color="#60A5FA" style={{ marginRight: 6 }} />
+                  <Text style={styles.retryText}>Show all {providers.length} providers</Text>
+                </TouchableOpacity>
+              ) : null}
+              {visibleProviders.map((p) => {
                 const selected = selectedProvider?.uid === p.uid;
                 return (
                   <TouchableOpacity
                     key={p.uid}
                     style={[styles.providerRow, selected && styles.providerRowActive]}
-                    onPress={() => setSelectedProvider(selected ? null : p)}
+                    onPress={() => pickProvider(p)}
                   >
                     <View style={[styles.radio, selected && styles.radioActive]}>
                       {selected ? <Feather name="check" size={12} color="#FFFFFF" /> : null}
@@ -215,7 +240,7 @@ export default function ConnectUtility() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#060D1C", position: "relative" },
   backgroundImage: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, width: "100%", height: "100%" },
-  scrollContent: { padding: SCREEN_WIDTH < 400 ? 16 : 20, gap: 14 },
+  scrollContent: { width: "100%", maxWidth: 720, alignSelf: "center", padding: SCREEN_WIDTH < 400 ? 16 : 20, gap: 14 },
   headerContainer: { marginBottom: 4 },
   backBtn: { backgroundColor: "#1E293B", padding: SCREEN_WIDTH < 400 ? 8 : 10, borderRadius: SCREEN_WIDTH < 400 ? 8 : 10, marginRight: 12 },
   headerTitle: { color: "#FFFFFF", fontSize: SCREEN_WIDTH < 400 ? 24 : 28, fontWeight: "900", letterSpacing: 0.5 },

@@ -12,15 +12,18 @@ import {
     ActivityIndicator,
     Image,
     ImageBackground,
+    KeyboardAvoidingView,
     Platform,
     Pressable,
-    SafeAreaView,
+    ScrollView,
     StyleSheet,
     Text,
     TextInput,
     View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { auth } from "../lib/firebase";
+import { GoogleSignInCancelled, isNativeGoogleSignInAvailable, signInWithGoogleNative } from "../lib/google-auth";
 
 const friendlyFirebaseError = (err: any, isSignup = false) => {
     const message = String(err?.message || "");
@@ -125,17 +128,18 @@ export default function AuthScreen() {
         setError(null);
         setInfoMessage(null);
 
-        if (Platform.OS !== "web") {
-            setError("Google sign-in is currently supported on web only.");
-            return;
-        }
-
         setLoading(true);
         try {
-            const provider = new GoogleAuthProvider();
-            await signInWithPopup(auth, provider);
+            if (Platform.OS === "web") {
+                const provider = new GoogleAuthProvider();
+                await signInWithPopup(auth, provider);
+            } else {
+                await signInWithGoogleNative();
+            }
             router.replace("/dashboard");
         } catch (err: any) {
+            // Backing out of the account picker is not an error — just stay put.
+            if (err instanceof GoogleSignInCancelled) return;
             setError(friendlyFirebaseError(err));
         } finally {
             setLoading(false);
@@ -156,7 +160,9 @@ export default function AuthScreen() {
     <View style={styles.overlay} />
 
     <SafeAreaView style={styles.container}>
-                <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.40)' }} />
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.kbView}>
+        <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.40)' }} />
 
                 <View style={styles.header}>
                     <View style={styles.logoWrap}>
@@ -260,6 +266,11 @@ export default function AuthScreen() {
                         <Image source={googleLogo} style={styles.googleLogo} resizeMode="contain" />
                         <Text style={styles.googleButtonText}>Continue with Google</Text>
                     </Pressable>
+                    {Platform.OS !== "web" && !isNativeGoogleSignInAvailable() && (
+                        <Text style={styles.nativeGoogleHint}>
+                            Google sign-in needs a development build — it isn't available in Expo Go or this test build.
+                        </Text>
+                    )}
 
                     <View style={styles.bottomSection}>
                         {isSignup ? (
@@ -289,7 +300,8 @@ export default function AuthScreen() {
                         )}
                     </View>
                 </View>
-
+                </ScrollView>
+            </KeyboardAvoidingView>
             </SafeAreaView>
         </ImageBackground>
     );
@@ -308,11 +320,23 @@ const styles = StyleSheet.create({
         height: '100%'
     },
     overlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: "rgba(0,0,0,0.42)",
 },
     container: {
         flex: 1,
+    },
+    kbView: {
+        flex: 1,
+        width: "100%",
+    },
+    scrollContainer: {
+        flexGrow: 1,
+        width: "100%",
         alignItems: "center",
         justifyContent: "center",
         paddingVertical: 24,
@@ -418,6 +442,13 @@ const styles = StyleSheet.create({
         color: "#FFFFFF",
         fontWeight: "700",
         fontSize: 16,
+    },
+    nativeGoogleHint: {
+        color: "#64748B",
+        fontSize: 12,
+        textAlign: "center",
+        marginTop: 8,
+        lineHeight: 17,
     },
     inputContainer: {
         flexDirection: "row",

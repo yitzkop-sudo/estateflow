@@ -21,7 +21,6 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -29,6 +28,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { auth, db } from "../lib/firebase";
 
 const { width: SW } = Dimensions.get("window");
@@ -566,7 +566,7 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#060D1C" },
   bgImage: { position: "absolute", width: "100%", height: "100%" },
   bgOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(5,10,20,0.78)" },
-  scroll: { padding: SW < 400 ? 16 : 20, gap: 14, paddingBottom: 60 },
+  scroll: { width: "100%", maxWidth: 1024, alignSelf: "center", padding: SW < 400 ? 16 : 20, gap: 14, paddingBottom: 60 },
 
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   backBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.12)", justifyContent: "center", alignItems: "center" },
@@ -595,10 +595,10 @@ const s = StyleSheet.create({
   propertyName: { color: "#94A3B8", fontSize: SW < 400 ? 12 : 13, marginTop: 2 },
   moreBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.06)", justifyContent: "center", alignItems: "center" },
 
-  cardDetailsRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  cardDetailsRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", rowGap: 8, gap: 12 },
   requestDesc: { color: "#94A3B8", fontSize: 13, lineHeight: 20, marginBottom: 10 },
-  costWrap: { flex: 1 },
-  dateWrap: { flex: 1 },
+  costWrap: { flex: 1, minWidth: 90 },
+  dateWrap: { flex: 1, minWidth: 90 },
   detailLabel: { color: "#64748B", fontSize: 11, marginBottom: 2 },
   costText: { color: "#F59E0B", fontSize: 18, fontWeight: "900" },
   dateText: { color: "#fff", fontSize: 14, fontWeight: "700" },

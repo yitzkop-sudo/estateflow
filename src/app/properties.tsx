@@ -10,7 +10,8 @@ import {
     where,
 } from "firebase/firestore";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Animated, Dimensions, Image, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Alert, Animated, Dimensions, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { auth, db } from "../lib/firebase";
 import { exportProperties } from "../lib/export";
 import { requirePlanFeature } from "../lib/plans";
@@ -171,7 +172,9 @@ export default function Properties() {
   };
 
   const handleEdit = (property: Property) => {
-    router.push(`/add-property?propertyId=${property.id}&propertyData=${encodeURIComponent(JSON.stringify(property))}`);
+    // Pass the ID only — the form fetches the document itself. Stuffing the
+    // whole property (incl. photo data URLs) into URL params breaks navigation.
+    router.push(`/add-property?propertyId=${property.id}`);
   };
 
   const calculateTotalUtilities = (utilities: Record<string, UtilityItem> | null | undefined) => {
@@ -441,9 +444,9 @@ export default function Properties() {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#060D1C" },
   bgImage: { position: "absolute", width: "100%", height: "100%" },
-  bgOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(5,10,20,0.78)" },
+  bgOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(5,10,20,0.78)" },
 
-  scrollContent: { padding: SCREEN_WIDTH < 400 ? 16 : 20, gap: 14, paddingBottom: 60 },
+  scrollContent: { width: "100%", maxWidth: 1024, alignSelf: "center", padding: SCREEN_WIDTH < 400 ? 16 : 20, gap: 14, paddingBottom: 60 },
 
   // ── Header ──
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
@@ -518,5 +521,5 @@ const s = StyleSheet.create({
   deleteConfirmText: { color: "#fff", fontSize: 16, fontWeight: "800" },
 
   imageModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center", padding: 24 },
-  imageModalImg: { width: SCREEN_WIDTH - 48, height: (SCREEN_WIDTH - 48) * 0.66, borderRadius: 16 },
+  imageModalImg: { width: "100%", maxWidth: 720, aspectRatio: 1.5, borderRadius: 16 },
 });

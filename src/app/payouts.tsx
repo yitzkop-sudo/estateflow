@@ -8,13 +8,13 @@ import {
   Alert,
   Linking,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { auth } from "../lib/firebase";
 import { fetchConnectStatus, startConnectOnboarding, type ConnectStatus } from "../lib/stripe";
 
@@ -197,7 +197,7 @@ const s = StyleSheet.create({
   topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
   iconBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.12)", justifyContent: "center", alignItems: "center" },
   topTitle: { color: "#fff", fontSize: 18, fontWeight: "800" },
-  content: { padding: 20, gap: 14 },
+  content: { width: "100%", maxWidth: 720, alignSelf: "center", padding: 20, gap: 14 },
   card: {
     backgroundColor: "#0F1B33",
     borderRadius: 20,
