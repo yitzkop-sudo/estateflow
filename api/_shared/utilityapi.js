@@ -369,5 +369,37 @@ exports.stopMeterMonitoring = async (meterUids) => {
   return { stopped: list };
 };
 
+/**
+ * Archive the authorizations behind meters (moves them out of the active
+ * Authorized list; synced bills and data are KEPT — unlike revoke, which
+ * permanently deletes everything). Used together with stopMeterMonitoring
+ * when a utility's paid period ends.
+ */
+exports.archiveMeterAuthorizations = async (meterUids) => {
+  const list = (meterUids || []).map(String).filter(Boolean);
+  const authUids = new Set();
+  for (const meterUid of list) {
+    try {
+      const meter = await api(`/meters/${encodeURIComponent(meterUid)}`);
+      if (meter && meter.authorization_uid) authUids.add(String(meter.authorization_uid));
+    } catch (e) {
+      console.warn(`archive lookup failed for meter ${meterUid}:`, e?.message || e);
+    }
+  }
+  const archived = [];
+  for (const authUid of authUids) {
+    try {
+      await api(`/authorizations/${encodeURIComponent(authUid)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ is_archived: true }),
+      });
+      archived.push(authUid);
+    } catch (e) {
+      console.warn(`archive failed for authorization ${authUid}:`, e?.message || e);
+    }
+  }
+  return { archived };
+};
+
 exports.ApiError = ApiError;
 exports.utilityApi = exports;

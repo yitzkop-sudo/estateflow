@@ -1202,6 +1202,10 @@ async function stopMonitoringForEndedKey(uid, key) {
     if (stoppable.length === 0) return;
     await utilityApi.stopMeterMonitoring(stoppable);
     console.log(`Stopped UtilityAPI monitoring for ${stoppable.length} meter(s) of ${key}.`);
+    const { archived } = await utilityApi.archiveMeterAuthorizations(stoppable);
+    if (archived.length > 0) {
+      console.log(`Archived ${archived.length} UtilityAPI authorization(s) for ${key}.`);
+    }
   } catch (e) {
     console.warn("stopMonitoringForEndedKey failed:", e?.message || e);
   }
