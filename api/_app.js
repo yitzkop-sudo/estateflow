@@ -1333,7 +1333,9 @@ app.get("/portal-entitlement", requireAuth, async (req, res) => {
 
 // ─── Stripe webhook ───────────────────────────────────────────────────────────
 app.post("/stripe-webhook", async (req, res) => {
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  // Trim: pasted secrets often carry a trailing newline, which makes every
+  // signature check fail with "No signatures found matching...".
+  const secret = (process.env.STRIPE_WEBHOOK_SECRET || "").trim();
   if (!secret) {
     console.error("STRIPE_WEBHOOK_SECRET is not set.");
     res.status(500).send("Webhook not configured");
@@ -1347,6 +1349,16 @@ app.post("/stripe-webhook", async (req, res) => {
 
   const stripe = stripeFactory(process.env.STRIPE_SECRET_KEY);
   const signature = req.get("stripe-signature");
+  // Diagnostic: if the platform pre-parsed and re-serialized the body,
+  // byte length won't match content-length and verification always fails.
+  const claimed = Number(req.get("content-length") || 0);
+  const actual = Buffer.isBuffer(req.rawBody) ? req.rawBody.length : -1;
+  if (claimed > 0 && actual >= 0 && claimed !== actual) {
+    console.error(
+      `Webhook body altered in transit (content-length ${claimed} vs ${actual} bytes). ` +
+        `Check bodyParser/raw-body handling in the serverless entry.`
+    );
+  }
   let event;
   try {
     event = stripe.webhooks.constructEvent(req.rawBody, signature, secret);

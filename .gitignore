@@ -64,3 +64,5 @@ netlify/functions/node_modules/
 .continue/
 .vs/
 .firebase/
+
+.vercel
