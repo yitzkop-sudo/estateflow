@@ -1,4 +1,5 @@
 import { Platform, Share } from "react-native";
+import { utilitiesTotal, utilityMeters, utilityTotal } from "./utilities";
 
 function escapeCSV(value: string | number | null | undefined): string {
   const str = String(value ?? "");
@@ -60,8 +61,14 @@ export async function exportProperties(properties: Property[]) {
   ];
   const rows = properties.map((p) => {
     const utilEntries = p.utilities ? Object.entries(p.utilities) : [];
-    const totalUtil = utilEntries.reduce((s, [, u]) => s + (parseFloat(u.amount) || 0), 0);
-    const utilList = utilEntries.map(([k, u]) => `${k}: $${u.amount}`).join("; ");
+    const totalUtil = utilEntries.reduce((s, [, u]) => s + utilityTotal(u), 0);
+    const utilList = utilEntries
+      .map(([k, u]) => {
+        const meters = utilityMeters(u);
+        const extra = meters.length > 1 ? ` (${meters.length} meters)` : "";
+        return `${k}${extra}: $${utilityTotal(u)}`;
+      })
+      .join("; ");
     return [
       p.propertyName,
       p.address,
@@ -184,9 +191,7 @@ export async function exportFullReport(opts: {
   sections.push("--- PROPERTIES ---");
   const propHeaders = ["Property Name", "Address", "Type", "Owner", "Value", "Monthly Income", "Utilities/mo"];
   const propRows = opts.properties.map((p) => {
-    const utilTotal = p.utilities
-      ? Object.values(p.utilities).reduce((s, u) => s + (parseFloat(u.amount) || 0), 0)
-      : 0;
+    const utilTotal = utilitiesTotal(p.utilities);
     return [p.propertyName, p.address, p.propertyType, p.ownerName, p.value ?? "", p.monthlyIncome ?? "", utilTotal || ""];
   });
   sections.push(toCSV(propHeaders, propRows));

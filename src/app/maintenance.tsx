@@ -29,6 +29,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ScreenHeader } from "../components/screen-header";
 import { auth, db } from "../lib/firebase";
 
 const { width: SW } = Dimensions.get("window");
@@ -291,16 +292,7 @@ export default function MaintenanceScreen() {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
 
           {/* ── HEADER ── */}
-          <View style={s.headerRow}>
-            <TouchableOpacity
-              onPress={() => router.canGoBack() ? router.back() : router.replace("/dashboard")}
-              style={s.backBtn}
-            >
-              <Feather name="arrow-left" size={22} color="#fff" />
-            </TouchableOpacity>
-            <Text style={s.headerTitle}>Maintenance</Text>
-            <View style={{ width: 44 }} />
-          </View>
+          <ScreenHeader title="Maintenance" subtitle="Requests and upkeep" />
 
           {/* ── SUMMARY CARDS ── */}
           <View style={s.summaryRow}>

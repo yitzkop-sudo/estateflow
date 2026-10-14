@@ -23,8 +23,10 @@ import {
   View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ScreenHeader } from "../components/screen-header";
 import { auth, db, storage } from "../lib/firebase";
 import { consumePendingUtilityLink } from "../lib/pendingUtilityLink";
+import { utilitiesTotal, utilityMeters, utilityTotal, type UtilityMeter } from "../lib/utilities";
 import {
   getUtilitySubscriptionStatus,
   refreshUtilityForProperty,
@@ -69,6 +71,8 @@ interface UtilityItem {
   meterUid?: string;
   auto?: boolean;
   notify?: boolean;
+  /** Extra meters on the same utility (first meter = the fields above). */
+  meters?: UtilityMeter[];
 }
 
 const PROPERTY_TYPES: PropertyType[] = ["house", "apartment", "condo", "commercial", "multi-family"];
@@ -176,6 +180,18 @@ export default function AddProperty() {
   const [modalProvider, setModalProvider] = useState("");
   const [modalDueDay, setModalDueDay] = useState<DueDay>(15);
   const [modalNotify, setModalNotify] = useState(true);
+  // Extra meters edited inside the utility modal (primary meter = modal fields).
+  const [modalMeters, setModalMeters] = useState<UtilityMeter[]>([]);
+  const [meterFormOpen, setMeterFormOpen] = useState(false);
+  const [editingMeterIndex, setEditingMeterIndex] = useState<number | null>(null);
+  const [meterLabel, setMeterLabel] = useState("");
+  const [meterAmount, setMeterAmount] = useState("");
+  const [meterProvider, setMeterProvider] = useState("");
+  const [meterDueDay, setMeterDueDay] = useState<DueDay>(15);
+  const [meterCustomDay, setMeterCustomDay] = useState("");
+  const [meterNotify, setMeterNotify] = useState(true);
+  // Where a completed provider link should land: primary or meters[i].
+  const linkTargetRef = useRef<{ key: UtilityKey; meterIndex: number | null } | null>(null);
   const [connectingUtility, setConnectingUtility] = useState<UtilityKey | null>(null);
   const [connectStatus, setConnectStatus] = useState("");
   const [subStatus, setSubStatus] = useState<UtilitySubStatus | null>(null);
@@ -242,22 +258,43 @@ export default function AddProperty() {
     }
   }, [router, params.propertyId, params.propertyData, isEditing]);
 
-  // Apply a completed provider link to the utility row.
+  // Apply a completed provider link to the targeted meter (primary or an
+  // extra meter, in the saved form or in the open modal).
   const applyLinkedUtility = (
     key: UtilityKey,
     data: { amount: string; provider: string; dueDay: DueDay; meterUid: string; notify?: boolean }
   ) => {
-    setUtilities((u) => ({
-      ...u,
-      [key]: {
-        amount: data.amount,
-        provider: data.provider,
-        dueDay: data.dueDay,
-        meterUid: data.meterUid,
-        auto: true,
-        notify: data.notify ?? true,
-      },
-    }));
+    const target = linkTargetRef.current && linkTargetRef.current.key === key
+      ? linkTargetRef.current
+      : { key, meterIndex: null as number | null };
+    linkTargetRef.current = null;
+    if (target.meterIndex !== null) {
+      setUtilities((u) => {
+        const prev = u[key];
+        const meters = [...(prev?.meters ?? [])];
+        meters[target.meterIndex as number] = {
+          ...(meters[target.meterIndex as number] || { label: "", amount: "", provider: "", dueDay: 15 as DueDay }),
+          amount: data.amount,
+          provider: data.provider,
+          dueDay: data.dueDay,
+          meterUid: data.meterUid,
+          auto: true,
+        };
+        return { ...u, [key]: { ...(prev as UtilityItem), meters } };
+      });
+    } else {
+      setUtilities((u) => ({
+        ...u,
+        [key]: {
+          amount: data.amount,
+          provider: data.provider,
+          dueDay: data.dueDay,
+          meterUid: data.meterUid,
+          auto: true,
+          notify: data.notify ?? true,
+        },
+      }));
+    }
     setSubStatus((s) => (s ? { ...s, linkedMeters: s.linkedMeters + 1 } : s));
     Alert.alert("Connected", `${key} bill auto-filled from ${data.provider}: $${data.amount}.`);
   };
@@ -481,6 +518,13 @@ export default function AddProperty() {
     setModalProvider(item?.provider ?? "");
     setModalDueDay(item?.dueDay ?? 15);
     setModalNotify(item?.notify ?? true);
+    setModalMeters(Array.isArray(item?.meters) ? item.meters.map((m: any) => ({ ...m })) : []);
+    setMeterFormOpen(false);
+    setEditingMeterIndex(null);
+    setMeterLabel("");
+    setMeterAmount("");
+    setMeterProvider("");
+    setMeterDueDay(15);
     setUtilityModalOpen(true);
   };
 
@@ -490,13 +534,45 @@ export default function AddProperty() {
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
   };
 
-  const applyUtilityModal = () => {
-    if (!editingUtility) return;
+  const buildItemFromModal = (): UtilityItem | null => {
+    if (!editingUtility) return null;
+    // An open meter sub-form was never added: don't silently drop it.
+    if (meterFormOpen) {
+      const hasInput =
+        meterLabel.trim() !== "" ||
+        meterAmount.trim() !== "" ||
+        meterProvider.trim() !== "" ||
+        meterCustomDay.trim() !== "" ||
+        editingMeterIndex !== null;
+      if (hasInput) {
+        if (meterAmount.trim() === "" || Number.isNaN(Number(meterAmount))) {
+          Alert.alert("Amount required", "Add the amount for this meter first (or Cancel the meter form).");
+        } else {
+          Alert.alert("Unfinished meter", "Tap 'Add Meter' to save this meter first, or Cancel the meter form.");
+        }
+        return null;
+      }
+    }
     if (modalAmount.trim() === "" || Number.isNaN(Number(modalAmount))) {
       Alert.alert("Invalid amount", "Please enter a valid numeric amount.");
-      return;
+      return null;
+    }
+    for (const [i, m] of modalMeters.entries()) {
+      if (String(m.amount ?? "").trim() === "" || Number.isNaN(Number(m.amount))) {
+        Alert.alert("Invalid amount", `Meter ${i + 2} needs a valid numeric amount.`);
+        return null;
+      }
     }
     const prev = utilities[editingUtility];
+    const cleanMeters: UtilityMeter[] = modalMeters.map((m) => ({
+      label: (m.label || "").trim(),
+      amount: String(m.amount).trim(),
+      provider: (m.provider || "").trim(),
+      dueDay: m.dueDay,
+      notify: m.notify !== false,
+      ...(m.meterUid ? { meterUid: m.meterUid } : {}),
+      ...(m.auto ? { auto: m.auto } : {}),
+    }));
     const buildItem = (dueDay: DueDay): UtilityItem => ({
       amount: modalAmount.trim(),
       provider: modalProvider.trim(),
@@ -504,19 +580,104 @@ export default function AddProperty() {
       notify: modalNotify,
       ...(prev?.meterUid ? { meterUid: prev.meterUid } : {}),
       ...(prev?.auto ? { auto: prev.auto } : {}),
+      ...(cleanMeters.length > 0 ? { meters: cleanMeters } : {}),
     });
     if (modalDueDay !== "last") {
       const d = Number(modalDueDay);
       if (!Number.isInteger(d) || d < 1 || d > 31) {
         Alert.alert("Invalid due day", "Please enter a day between 1 and 31, or choose Last.");
-        return;
+        return null;
       }
-      setUtilities((u) => ({ ...u, [editingUtility]: buildItem(d) }));
-    } else {
-      setUtilities((u) => ({ ...u, [editingUtility]: buildItem("last") }));
+      return buildItem(d);
     }
+    return buildItem("last");
+  };
+
+  const applyUtilityModal = () => {
+    if (!editingUtility) return;
+    const item = buildItemFromModal();
+    if (!item) return;
+    setUtilities((u) => ({ ...u, [editingUtility]: item }));
     setUtilityModalOpen(false);
     setEditingUtility(null);
+  };
+
+  const openMeterForm = (index: number | null) => {
+    if (index !== null) {
+      const m = modalMeters[index];
+      setEditingMeterIndex(index);
+      setMeterLabel(m.label || "");
+      setMeterAmount(m.amount || "");
+      setMeterProvider(m.provider || "");
+      const dd = m.dueDay ?? 15;
+      if (dd === "last" || [1, 5, 10, 15, 20, 25].includes(Number(dd))) {
+        setMeterDueDay(dd);
+        setMeterCustomDay("");
+      } else {
+        setMeterDueDay(15);
+        setMeterCustomDay(String(dd));
+      }
+      setMeterNotify(m.notify !== false);
+    } else {
+      setEditingMeterIndex(null);
+      setMeterLabel("");
+      setMeterAmount("");
+      setMeterProvider("");
+      setMeterDueDay(15);
+      setMeterCustomDay("");
+      setMeterNotify(true);
+    }
+    setMeterFormOpen(true);
+  };
+
+  const applyMeterForm = () => {
+    if (meterAmount.trim() === "" || Number.isNaN(Number(meterAmount))) {
+      Alert.alert("Invalid amount", "Please enter a valid numeric amount.");
+      return;
+    }
+    let dd: DueDay = meterDueDay;
+    // Custom day wins when it's a valid 1-31.
+    const custom = meterCustomDay.trim();
+    if (custom !== "") {
+      if (custom.toLowerCase() === "last") {
+        dd = "last";
+      } else {
+        const d = Number(custom);
+        if (!Number.isInteger(d) || d < 1 || d > 31) {
+          Alert.alert("Invalid due day", "Please enter a day between 1 and 31, or choose Last.");
+          return;
+        }
+        dd = d;
+      }
+    } else if (dd !== "last") {
+      const d = Number(dd);
+      if (!Number.isInteger(d) || d < 1 || d > 31) {
+        Alert.alert("Invalid due day", "Please enter a day between 1 and 31, or choose Last.");
+        return;
+      }
+      dd = d;
+    }
+    const entry: UtilityMeter = {
+      label: meterLabel.trim(),
+      amount: meterAmount.trim(),
+      provider: meterProvider.trim(),
+      dueDay: dd,
+      notify: meterNotify,
+    };
+    if (editingMeterIndex !== null) {
+      const prev = modalMeters[editingMeterIndex];
+      setModalMeters((ms) =>
+        ms.map((m, i) => (i === editingMeterIndex ? { ...entry, ...(prev.meterUid ? { meterUid: prev.meterUid } : {}), ...(prev.auto ? { auto: prev.auto } : {}) } : m))
+      );
+    } else {
+      setModalMeters((ms) => [...ms, entry]);
+    }
+    setMeterFormOpen(false);
+    setEditingMeterIndex(null);
+  };
+
+  const removeMeter = (index: number) => {
+    setModalMeters((ms) => ms.filter((_, i) => i !== index));
   };
 
   const removeUtility = (key: UtilityKey) => {
@@ -527,13 +688,37 @@ export default function AddProperty() {
 
   // Per-utility billing: every connect goes through the wizard so each
   // utility gets its own $20/mo subscription (pay → authorize → data back).
-  const handleLinkUtility = (key: UtilityKey) => {
-    router.push({ pathname: "/connect-utility", params: { utilityKey: key } });
+  const handleLinkUtility = (key: UtilityKey, meterIndex: number | null = null, inModal = false, meterLabel?: string) => {
+    // From the edit modal: commit the form first so the link has a saved row
+    // to land on, then get the modal out of the way for the provider page.
+    if (inModal && editingUtility === key) {
+      const item = buildItemFromModal();
+      if (!item) return;
+      setUtilities((u) => ({ ...u, [key]: item }));
+      setUtilityModalOpen(false);
+      setMeterFormOpen(false);
+    } else {
+      setUtilityModalOpen(false);
+      setMeterFormOpen(false);
+    }
+    linkTargetRef.current = { key, meterIndex };
+    router.push({
+      pathname: "/connect-utility",
+      params: {
+        utilityKey: key,
+        lockUtility: "1",
+        ...(meterIndex !== null ? { newMeter: "1" } : {}),
+        ...(meterLabel ? { meterLabel } : {}),
+      },
+    });
   };
 
-  const handleRefreshUtility = async (key: UtilityKey) => {
-    const item = utilities[key];
-    if (!item?.meterUid) return;
+  const refreshMeterInto = async (
+    key: UtilityKey,
+    meterUid: string,
+    write: (data: { amount: string; provider: string; dueDay: DueDay }) => void,
+    label: string
+  ) => {
     if (!subStatus?.active) {
       Alert.alert("Upgrade required", "Auto utility sync is a paid feature.");
       return;
@@ -541,18 +726,32 @@ export default function AddProperty() {
     setConnectingUtility(key);
     setConnectStatus("Refreshing your latest bill...");
     try {
-      const data = await refreshUtilityForProperty(item.meterUid);
-      setUtilities((u) => ({
-        ...u,
-        [key]: { ...(u[key] as UtilityItem), amount: data.amount, provider: data.provider, dueDay: data.dueDay },
-      }));
-      Alert.alert("Refreshed", `${key} bill updated to $${data.amount} from ${data.provider}.`);
+      const data = await refreshUtilityForProperty(meterUid);
+      write({ amount: data.amount, provider: data.provider, dueDay: data.dueDay as DueDay });
+      Alert.alert("Refreshed", `${label} bill updated to $${data.amount} from ${data.provider}.`);
     } catch (e: any) {
       Alert.alert("Refresh failed", e?.message || "Could not refresh the bill.");
     } finally {
       setConnectingUtility(null);
       setConnectStatus("");
     }
+  };
+
+  const handleRefreshUtility = async (key: UtilityKey) => {
+    const item = utilities[key];
+    if (!item?.meterUid) return;
+    await refreshMeterInto(key, item.meterUid, (data) => {
+      setUtilities((u) => ({ ...u, [key]: { ...(u[key] as UtilityItem), ...data } }));
+    }, key);
+  };
+
+  const handleRefreshMeter = async (meterIndex: number) => {
+    if (!editingUtility) return;
+    const m = modalMeters[meterIndex];
+    if (!m?.meterUid) return;
+    await refreshMeterInto(editingUtility, m.meterUid, (data) => {
+      setModalMeters((ms) => ms.map((x, i) => (i === meterIndex ? { ...x, ...data } : x)));
+    }, m.label || `${editingUtility} meter ${meterIndex + 2}`);
   };
 
   const handleSave = async () => {
@@ -672,15 +871,7 @@ export default function AddProperty() {
 
           {/* ── HEADER ── */}
           <View style={styles.headerContainer}>
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <TouchableOpacity
-                onPress={() => router.canGoBack() ? router.back() : router.replace("/dashboard")}
-                style={{ backgroundColor: "#1E293B", padding: SCREEN_WIDTH < 400 ? 8 : 10, borderRadius: SCREEN_WIDTH < 400 ? 8 : 10, marginRight: SCREEN_WIDTH < 400 ? 12 : 16 }}
-              >
-                <Feather name="arrow-left" size={SCREEN_WIDTH < 400 ? 20 : 24} color="white" />
-              </TouchableOpacity>
-              <Text style={styles.headerTitle}>{isEditing ? "Edit Property" : "Add Property"}</Text>
-            </View>
+            <ScreenHeader title={isEditing ? "Edit Property" : "Add Property"} />
           </View>
 
           {/* ── PROGRESS / STEP DOTS ── */}
@@ -915,14 +1106,14 @@ export default function AddProperty() {
                         <View style={styles.utilityTextWrap}>
                           <Text style={styles.utilityLabel} numberOfLines={1}>{key}</Text>
                           {utility ? (
-                            <Text style={styles.utilityDetailText} numberOfLines={2} ellipsizeMode="tail">{`${utility.provider || "No provider"}${utility.meterUid ? " • linked" : ""}${utility.notify === false ? " • muted" : ""}`}</Text>
+                            <Text style={styles.utilityDetailText} numberOfLines={2} ellipsizeMode="tail">{`${utility.provider || "No provider"}${(utility.meters?.length ?? 0) > 0 ? ` • ${1 + (utility.meters?.length ?? 0)} meters` : ""}${utility.meterUid || (utility.meters ?? []).some((m: any) => m.meterUid) ? " • linked" : ""}${utility.notify === false ? " • muted" : ""}`}</Text>
                           ) : (
                             <Text style={styles.utilityPlaceholder}>Not added yet</Text>
                           )}
                         </View>
                         {utility ? (
                           <View style={styles.utilityAmountWrap}>
-                            <Text style={styles.utilityAmountText} numberOfLines={1}>{`$${utility.amount}`}</Text>
+                            <Text style={styles.utilityAmountText} numberOfLines={1}>{`$${utilityTotal(utility as any)}`}</Text>
                             <Text style={styles.utilityDueText} numberOfLines={2}>{`Due: ${formatUtilityDueDay(utility.dueDay)}`}</Text>
                             {utility.notify === false ? (
                               <Feather name="bell-off" size={12} color="#64748B" style={{ marginTop: 2 }} />
@@ -954,7 +1145,8 @@ export default function AddProperty() {
               <Modal visible={utilityModalOpen} transparent animationType="slide">
                 <View style={styles.modalOverlay}>
                   <TouchableOpacity style={{ flex: 1 }} onPress={() => setUtilityModalOpen(false)} />
-                  <View style={styles.modalContent}>
+                  <View style={[styles.modalContent, { maxHeight: "88%" }]}>
+                  <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                     <Text style={styles.modalTitle}>{editingUtility && utilities[editingUtility] ? `Edit ${editingUtility}` : `Add ${editingUtility ?? "Utility"}`}</Text>
                     <Text style={styles.modalLabel}>Amount</Text>
                     <TextInput style={styles.modalInput} placeholder="Enter amount" placeholderTextColor="#94A3B8" keyboardType="decimal-pad" value={modalAmount} onChangeText={setModalAmount} />
@@ -975,6 +1167,95 @@ export default function AddProperty() {
                       </View>
                       <Switch value={modalNotify} onValueChange={setModalNotify} trackColor={{ false: "#334155", true: "rgba(52,211,153,0.4)" }} thumbColor={modalNotify ? "#34D399" : "#94A3B8"} />
                     </View>
+
+                    {/* ── Extra meters on this utility ── */}
+                    <Text style={styles.modalLabel}>Additional meters ({modalMeters.length})</Text>
+                    {modalMeters.map((m, i) => (
+                      <View key={i} style={styles.meterRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.meterRowTitle} numberOfLines={1}>
+                            {m.label || `Meter ${i + 2}`} · {m.provider || "No provider"} · {m.amount ? `$${m.amount}` : "—"}
+                          </Text>
+                          <Text style={styles.meterRowSub} numberOfLines={1}>
+                            {`Due: ${formatUtilityDueDay(m.dueDay)}${m.meterUid ? " • linked" : ""}${m.notify === false ? " • muted" : ""}`}
+                          </Text>
+                        </View>
+                        {!meterFormOpen && subStatus?.active && (
+                          <TouchableOpacity
+                            style={styles.meterIconBtn}
+                            onPress={() => (m.meterUid ? handleRefreshMeter(i) : editingUtility && handleLinkUtility(editingUtility, i, true, m.label || `Meter ${i + 2}`))}
+                            disabled={connectingUtility !== null}
+                          >
+                            <Feather name={m.meterUid ? "refresh-cw" : "link"} size={15} color="#34D399" />
+                          </TouchableOpacity>
+                        )}
+                        {!meterFormOpen && (
+                          <TouchableOpacity style={styles.meterIconBtn} onPress={() => openMeterForm(i)}>
+                            <Feather name="edit-2" size={15} color="#60A5FA" />
+                          </TouchableOpacity>
+                        )}
+                        {!meterFormOpen && (
+                          <TouchableOpacity style={styles.meterIconBtn} onPress={() => removeMeter(i)}>
+                            <Feather name="trash-2" size={15} color="#EF4444" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ))}
+                    {meterFormOpen ? (
+                      <View style={styles.meterForm}>
+                        <Text style={styles.modalLabel}>Meter label</Text>
+                        <TextInput style={styles.modalInput} placeholder="e.g. Garage, Unit B" placeholderTextColor="#94A3B8" value={meterLabel} onChangeText={setMeterLabel} />
+                        <Text style={styles.modalLabel}>Amount</Text>
+                        <TextInput style={styles.modalInput} placeholder="Enter amount" placeholderTextColor="#94A3B8" keyboardType="decimal-pad" value={meterAmount} onChangeText={setMeterAmount} />
+                        <Text style={styles.modalLabel}>Provider</Text>
+                        <TextInput style={styles.modalInput} placeholder="Enter provider name" placeholderTextColor="#94A3B8" value={meterProvider} onChangeText={setMeterProvider} />
+                        <Text style={styles.modalLabel}>Due Day</Text>
+                        <View style={styles.meterDueRow}>
+                          {[1, 5, 10, 15, 20, 25, "last"].map((d) => (
+                            <TouchableOpacity
+                              key={String(d)}
+                              style={[styles.meterDueChip, meterDueDay === d && meterCustomDay.trim() === "" && styles.meterDueChipActive]}
+                              onPress={() => { setMeterDueDay(d as DueDay); setMeterCustomDay(""); }}
+                            >
+                              <Text style={[styles.meterDueChipText, meterDueDay === d && meterCustomDay.trim() === "" && styles.meterDueChipTextActive]}>
+                                {d === "last" ? "Last" : String(d)}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                        <TextInput
+                          style={styles.modalInput}
+                          placeholder="Or custom day (1-31)"
+                          placeholderTextColor="#94A3B8"
+                          keyboardType="numeric"
+                          value={meterCustomDay}
+                          onChangeText={setMeterCustomDay}
+                        />
+                        <View style={styles.notifyRow}>
+                          <View style={styles.notifyTextWrap}>
+                            <Feather name={meterNotify ? "bell" : "bell-off"} size={16} color={meterNotify ? "#34D399" : "#64748B"} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.notifyTitle}>Notify me when due</Text>
+                              <Text style={styles.notifySubtitle}>Get a reminder before this bill is due.</Text>
+                            </View>
+                          </View>
+                          <Switch value={meterNotify} onValueChange={setMeterNotify} trackColor={{ false: "#334155", true: "rgba(52,211,153,0.4)" }} thumbColor={meterNotify ? "#34D399" : "#94A3B8"} />
+                        </View>
+                        <View style={{ flexDirection: "row", gap: 8 }}>
+                          <TouchableOpacity style={[styles.closeButton, { flex: 1 }]} onPress={() => { setMeterFormOpen(false); setEditingMeterIndex(null); }}>
+                            <Text style={styles.closeButtonText}>Cancel</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.applyButton, { flex: 1, marginBottom: 0 }]} onPress={applyMeterForm}>
+                            <Text style={styles.applyButtonText}>{editingMeterIndex !== null ? "Update Meter" : "Add Meter"}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ) : (
+                      <TouchableOpacity style={styles.addMeterButton} onPress={() => openMeterForm(null)}>
+                        <Feather name="plus" size={16} color="#34D399" />
+                        <Text style={styles.addMeterButtonText}>Add another meter</Text>
+                      </TouchableOpacity>
+                    )}
                     <Modal visible={dueDayModalOpen} transparent animationType="fade" onRequestClose={() => setDueDayModalOpen(false)}>
                       <View style={styles.modalOverlay}>
                         <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setDueDayModalOpen(false)} />
@@ -1015,6 +1296,7 @@ export default function AddProperty() {
                     <TouchableOpacity style={styles.closeButton} onPress={() => setUtilityModalOpen(false)}>
                       <Text style={styles.closeButtonText}>Close</Text>
                     </TouchableOpacity>
+                  </ScrollView>
                   </View>
                 </View>
               </Modal>
@@ -1107,7 +1389,7 @@ export default function AddProperty() {
                   </View>
                   <View style={[styles.reviewDataRow, { marginBottom: 0 }]}>
                     <Text style={styles.reviewLabel}>Monthly Utilities</Text>
-                    <Text style={styles.reviewValue}>{Object.values(utilities).reduce((sum, item) => sum + Number(item?.amount || 0), 0) ? `$${Object.values(utilities).reduce((sum, item) => sum + Number(item?.amount || 0), 0).toLocaleString()}` : "-"}</Text>
+                    <Text style={styles.reviewValue}>{utilitiesTotal(utilities) ? `$${utilitiesTotal(utilities).toLocaleString()}` : "-"}</Text>
                   </View>
                 </View>
               </View>
@@ -1265,6 +1547,18 @@ const styles = StyleSheet.create({
 
   tenantRow: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(30,41,59,0.65)", padding: SCREEN_WIDTH < 400 ? 12 : 14, borderRadius: 16, marginBottom: 8, borderWidth: 1, borderColor: "rgba(59,130,246,0.10)" },
   tenantRowText: { flex: 1, color: "#FFFFFF", fontSize: SCREEN_WIDTH < 400 ? 14 : 16, fontWeight: "700" },
+  meterRow: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(30,41,59,0.65)", padding: 12, borderRadius: 14, marginBottom: 8, borderWidth: 1, borderColor: "rgba(52,211,153,0.12)", gap: 4 },
+  meterRowTitle: { color: "#FFFFFF", fontSize: 13, fontWeight: "800", flex: 1 },
+  meterRowSub: { color: "#64748B", fontSize: 11, fontWeight: "600", marginTop: 2 },
+  meterIconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.06)", justifyContent: "center", alignItems: "center" },
+  meterForm: { backgroundColor: "rgba(52,211,153,0.06)", borderRadius: 14, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: "rgba(52,211,153,0.18)" },
+  meterDueRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 },
+  meterDueChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: "rgba(30,41,59,0.7)", borderWidth: 1, borderColor: "rgba(59,130,246,0.12)" },
+  meterDueChipActive: { backgroundColor: "rgba(59,130,246,0.2)", borderColor: "rgba(59,130,246,0.5)" },
+  meterDueChipText: { color: "#94A3B8", fontSize: 13, fontWeight: "700" },
+  meterDueChipTextActive: { color: "#3B82F6" },
+  addMeterButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: "rgba(52,211,153,0.35)", backgroundColor: "rgba(52,211,153,0.08)", marginBottom: 12 },
+  addMeterButtonText: { color: "#34D399", fontSize: 14, fontWeight: "800" },
   addTenantRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: SCREEN_WIDTH < 400 ? 12 : 16 },
   addTenantButton: { backgroundColor: "#3B82F6", padding: SCREEN_WIDTH < 400 ? 12 : 14, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   financialRow: { flexDirection: "row", gap: 10, flexWrap: "wrap", marginTop: 6 },

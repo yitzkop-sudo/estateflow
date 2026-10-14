@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import { computeNextDueDate } from "./date";
+import { utilityMeters } from "./utilities";
 
 let Notifications: any = null;
 let _native = false;
@@ -146,6 +147,133 @@ export async function scheduleRentReminders(
   return { count, upcoming };
 }
 
+export type MaintenanceTask = {
+  id: string;
+  title: string;
+  propertyName: string;
+  cost: number;
+  date: any;
+  status?: string;
+  createdAt?: any;
+};
+
+export type MaintenanceReminder = {
+  id: string;
+  title: string;
+  propertyName: string;
+  cost: number;
+  dueDate: Date;
+  overdue: boolean;
+};
+
+// Session-level dedupe so a new request doesn't re-push on every app open.
+const notifiedNewMaintenanceIds = new Set<string>();
+
+/**
+ * Tenant-portal maintenance requests only (landlord manual tasks never
+ * notify). Pushes for newly arrived requests + overdue/due-soon open ones.
+ */
+export async function scheduleMaintenanceReminders(
+  tasks: MaintenanceTask[]
+): Promise<{ count: number; upcoming: MaintenanceReminder[] }> {
+  // Same pattern as rent/utilities: the due list is computed regardless of
+  // OS permission — only the scheduled push needs it.
+  let canNotify = !!(Notifications && _native);
+  if (canNotify) {
+    const granted = await setupNotifications();
+    if (!granted) canNotify = false;
+  }
+
+  const upcoming: MaintenanceReminder[] = [];
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  for (const task of tasks) {
+    if (!task || !task.id) continue;
+    // Done tasks never remind.
+    if (String(task.status || "").toLowerCase() === "done") continue;
+    const raw = task.date;
+    const due = raw?.toDate ? raw.toDate() : raw ? new Date(raw) : null;
+    if (!due || isNaN(due.getTime())) continue;
+
+    const pushNow = async (title: string, body: string, extra?: Record<string, any>) => {
+      if (!canNotify) return;
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body,
+          data: { maintenanceId: task.id, ...(extra || {}) },
+        },
+        trigger: { seconds: 60, type: Notifications.SchedulableTriggerInputTypes?.TIME_INTERVAL || 0 },
+      });
+    };
+
+    const addUpcoming = (overdue: boolean) => {
+      upcoming.push({
+        id: task.id,
+        title: task.title || "Maintenance request",
+        propertyName: task.propertyName || "",
+        cost: task.cost || 0,
+        dueDate: due,
+        overdue,
+      });
+    };
+
+    // Fresh tenant request (arrived in the last 24h): always surface + push once.
+    const createdRaw = task.createdAt;
+    const created = createdRaw?.toDate ? createdRaw.toDate() : createdRaw ? new Date(createdRaw) : null;
+    const isNew =
+      created && !isNaN(created.getTime()) && Date.now() - created.getTime() < 24 * 60 * 60 * 1000;
+    if (isNew) {
+      addUpcoming(due < todayStart);
+      if (!notifiedNewMaintenanceIds.has(task.id)) {
+        notifiedNewMaintenanceIds.add(task.id);
+        await pushNow(
+          "New maintenance request",
+          `${task.title || "Maintenance request"}${task.propertyName ? ` at ${task.propertyName}` : ""} — tap to review`
+        );
+      }
+      continue;
+    }
+
+    const overdue = due < todayStart;
+    const diffMs = due.getTime() - Date.now();
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+
+    if (overdue) {
+      addUpcoming(true);
+      await pushNow(
+        "Maintenance Overdue",
+        `${task.title || "Maintenance request"}${task.propertyName ? ` at ${task.propertyName}` : ""} is still open`,
+        { overdue: true }
+      );
+      continue;
+    }
+
+    // Only surface requests due soon (today through next 3 days).
+    if (!(diffDays <= 3)) continue;
+    addUpcoming(false);
+
+    if (canNotify && diffDays <= 2) {
+      const triggerSec = diffDays > 0 ? Math.max(Math.round(diffMs / 1000) - 86400, 60) : 60;
+      const trigger: any = { seconds: triggerSec };
+      if (Notifications.SchedulableTriggerInputTypes?.TIME_INTERVAL !== undefined) {
+        trigger.type = Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL;
+      }
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "Maintenance Due Soon",
+          body: `${task.title || "Maintenance request"}${task.propertyName ? ` at ${task.propertyName}` : ""} is due ${due.toLocaleDateString()}`,
+          data: { maintenanceId: task.id },
+        },
+        trigger,
+      });
+    }
+  }
+
+  return { count: upcoming.length, upcoming };
+}
+
 export async function scheduleUtilityReminders(
   properties: { id: string; propertyName: string; utilities: Record<string, UtilityEntry> }[]
 ) {
@@ -157,34 +285,39 @@ export async function scheduleUtilityReminders(
     else await Notifications.cancelAllScheduledNotificationsAsync();
   }
 
-  const upcoming: { propertyName: string; utilityName: string; amount: string; dueDate: Date }[] = [];
+  const upcoming: { propertyId: string; propertyName: string; utilityName: string; amount: string; dueDate: Date }[] = [];
 
   for (const property of properties) {
     if (!property.utilities) continue;
     for (const [utilityName, utility] of Object.entries(property.utilities)) {
       // Opt-out: user disabled reminders for this utility
       if (utility.notify === false) continue;
-      const due = nextDueDate(utility.dueDay);
-      if (!due) continue;
+      for (const meter of utilityMeters(utility as any)) {
+        const notify = meter.notify ?? (utility as any).notify ?? true;
+        if (notify === false) continue;
+        const label = meter.label ? `${utilityName} (${meter.label})` : utilityName;
+        const due = nextDueDate(meter.dueDay);
+        if (!due) continue;
 
-      const diffMs = due.getTime() - Date.now();
-      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+        const diffMs = due.getTime() - Date.now();
+        const diffDays = diffMs / (1000 * 60 * 60 * 24);
 
-      // Only surface utilities that are due soon (next 3 days)
-      if (!(diffDays > 0 && diffDays <= 3)) continue;
+        // Only surface utilities that are due soon (next 3 days)
+        if (!(diffDays > 0 && diffDays <= 3)) continue;
 
-      upcoming.push({ propertyName: property.propertyName, utilityName, amount: utility.amount, dueDate: due });
+        upcoming.push({ propertyId: property.id, propertyName: property.propertyName, utilityName: label, amount: meter.amount, dueDate: due });
 
-      if (canNotify && diffDays <= 2 && diffDays > 0) {
-        const triggerSec = Math.max(Math.round(diffMs / 1000) - 86400, 60);
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: "Utility Due Tomorrow",
-            body: `${property.propertyName}: ${utilityName} bill of $${Number(utility.amount).toLocaleString()} is due ${due.toLocaleDateString()}`,
-            data: { propertyId: property.id, utilityName },
-          },
-          trigger: { seconds: triggerSec, type: Notifications.SchedulableTriggerInputTypes?.TIME_INTERVAL || 0 },
-        });
+        if (canNotify && diffDays <= 2 && diffDays > 0) {
+          const triggerSec = Math.max(Math.round(diffMs / 1000) - 86400, 60);
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: "Utility Due Tomorrow",
+              body: `${property.propertyName}: ${label} bill of $${Number(meter.amount).toLocaleString()} is due ${due.toLocaleDateString()}`,
+              data: { propertyId: property.id, utilityName: label },
+            },
+            trigger: { seconds: triggerSec, type: Notifications.SchedulableTriggerInputTypes?.TIME_INTERVAL || 0 },
+          });
+        }
       }
     }
   }

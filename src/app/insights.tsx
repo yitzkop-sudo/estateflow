@@ -22,12 +22,14 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ScreenHeader } from "../components/screen-header";
 
 import { BarChart, LineChart, PieChart } from "react-native-gifted-charts";
 import Svg, { Circle, Path, Polyline } from "react-native-svg";
 
 import { auth, db } from "../lib/firebase";
 import { exportInsights } from "../lib/export";
+import { utilitiesTotal, utilityMeters, utilityTotal } from "../lib/utilities";
 import { requirePlanFeature } from "../lib/plans";
 import { useResponsive } from "../hooks/use-responsive";
 
@@ -121,20 +123,14 @@ const percentChange = (current: number, previous: number) => {
 const currency = (value: number) =>
   `$${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
-const getUtilityTotal = (utilities?: Record<string, UtilityItem>) => {
-  if (!utilities) return 0;
-  return Object.values(utilities).reduce(
-    (sum, utility) => sum + (parseFloat(utility.amount) || 0),
-    0
-  );
-};
+const getUtilityTotal = (utilities?: Record<string, UtilityItem>) => utilitiesTotal(utilities);
 
 const buildUtilityTotals = (properties: Property[]) => {
   const totals: Record<string, number> = { Electric: 0, Water: 0, Gas: 0, Oil: 0, Sewer: 0, Trash: 0, Other: 0 };
   properties.forEach((property) => {
     if (!property.utilities) return;
     Object.entries(property.utilities).forEach(([key, utility]) => {
-      const value = parseFloat(utility.amount) || 0;
+      const value = utilityTotal(utility);
       switch (key.toLowerCase()) {
         case "electric": totals.Electric += value; break;
         case "water": totals.Water += value; break;
@@ -160,17 +156,19 @@ const dueSoonUtilities = (properties: Property[]) => {
   const results: { propertyName: string; provider: string; amount: number; dueDay: number | "last" }[] = [];
   properties.forEach((p) => {
     if (!p.utilities) return;
-    Object.values(p.utilities).forEach((u) => {
-      if (u.notify === false) return;
-      if (u.dueDay === "last") return;
-      const diff = u.dueDay - today;
-      if (diff >= 0 && diff <= 7) {
-        results.push({
-          propertyName: p.propertyName,
-          provider: u.provider,
-          amount: parseFloat(u.amount) || 0,
-          dueDay: u.dueDay,
+    Object.entries(p.utilities).forEach(([key, u]) => {
+      for (const m of utilityMeters(u)) {
+        if (m.notify === false) continue;
+        if (m.dueDay === "last") continue;
+        const diff = Number(m.dueDay) - today;
+        if (diff >= 0 && diff <= 7) {
+          results.push({
+          propertyName: `${p.propertyName} · ${key}${m.label ? ` (${m.label})` : ""}`,
+          provider: m.provider,
+          amount: parseFloat(m.amount) || 0,
+          dueDay: m.dueDay,
         });
+        }
       }
     });
   });
@@ -717,27 +715,25 @@ export default function Insights() {
         ) : (
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
             {/* HEADER */}
-            <View style={styles.header}>
-              <TouchableOpacity onPress={() => router.replace("/dashboard")} style={styles.backBtn}>
-                <Feather name="chevron-left" size={22} color="#fff" />
-              </TouchableOpacity>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.headerTitle}>Insights</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.filterBtn}
-                onPress={async () => {
-                  if (!(await requirePlanFeature("exports", "Excel exports"))) return;
-                  exportInsights({
-                    snapshots,
-                    paidByMonth,
-                    maintenance: maintenance.map(m => ({ title: m.title || "", propertyName: m.propertyName || "", cost: m.cost || 0, date: m.date })),
-                  });
-                }}
-              >
-                <Feather name="download" size={18} color="#4F8DFF" />
-              </TouchableOpacity>
-            </View>
+            <ScreenHeader
+              title="Insights"
+              subtitle="Portfolio performance"
+              right={
+                <TouchableOpacity
+                  style={styles.filterBtn}
+                  onPress={async () => {
+                    if (!(await requirePlanFeature("exports", "Excel exports"))) return;
+                    exportInsights({
+                      snapshots,
+                      paidByMonth,
+                      maintenance: maintenance.map(m => ({ title: m.title || "", propertyName: m.propertyName || "", cost: m.cost || 0, date: m.date })),
+                    });
+                  }}
+                >
+                  <Feather name="download" size={18} color="#4F8DFF" />
+                </TouchableOpacity>
+              }
+            />
 
             {/* SUMMARY CARDS (2x2) */}
             <View style={styles.summaryGrid}>

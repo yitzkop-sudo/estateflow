@@ -12,8 +12,10 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Animated, Dimensions, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ScreenHeader } from "../components/screen-header";
 import { auth, db } from "../lib/firebase";
 import { exportProperties } from "../lib/export";
+import { utilitiesTotal, utilityMeters, utilityTotal } from "../lib/utilities";
 import { requirePlanFeature } from "../lib/plans";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -177,15 +179,8 @@ export default function Properties() {
     router.push(`/add-property?propertyId=${property.id}`);
   };
 
-  const calculateTotalUtilities = (utilities: Record<string, UtilityItem> | null | undefined) => {
-    let total = 0;
-    if (utilities) {
-      Object.values(utilities).forEach(utility => {
-        total += parseFloat(utility.amount) || 0;
-      });
-    }
-    return total;
-  };
+  const calculateTotalUtilities = (utilities: Record<string, UtilityItem> | null | undefined) =>
+    utilitiesTotal(utilities);
 
   const getPropertyTenants = (prop: Property): string[] => {
     const inline = prop.tenants?.length ? prop.tenants : (prop.tenantName ? [prop.tenantName] : []);
@@ -220,18 +215,15 @@ export default function Properties() {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scrollContent}>
 
           {/* ── HEADER ── */}
-          <View style={s.headerRow}>
-            <TouchableOpacity
-              onPress={() => router.canGoBack() ? router.back() : router.replace("/dashboard")}
-              style={s.backBtn}
-            >
-              <Feather name="arrow-left" size={22} color="#fff" />
-            </TouchableOpacity>
-            <Text style={s.headerTitle}>My Properties</Text>
-            <TouchableOpacity style={s.searchToggleBtn} onPress={toggleSearch}>
-              <Feather name={searchOpen ? "x" : "search"} size={20} color="#fff" />
-            </TouchableOpacity>
-          </View>
+          <ScreenHeader
+            title="My Properties"
+            subtitle="Portfolio at a glance"
+            right={
+              <TouchableOpacity style={s.searchToggleBtn} onPress={toggleSearch}>
+                <Feather name={searchOpen ? "x" : "search"} size={20} color="#fff" />
+              </TouchableOpacity>
+            }
+          />
 
           {/* ── ACTION BUTTONS ── */}
           <View style={s.actionBtnRow}>
@@ -381,13 +373,14 @@ export default function Properties() {
                       </View>
                       {Object.entries(property.utilities).map(([key, utility]) => {
                         const meta = UTILITY_META[key] || { icon: "zap" as const, color: "#94A3B8" };
+                        const meters = utilityMeters(utility);
                         return (
                           <View key={key} style={s.utilityRow}>
                             <View style={[s.utilityIcon, { backgroundColor: `${meta.color}22` }]}>
                               <Feather name={meta.icon} size={13} color={meta.color} />
                             </View>
-                            <Text style={s.utilityName}>{key}</Text>
-                            <Text style={s.utilityAmount}>${Number(utility.amount).toLocaleString()}</Text>
+                            <Text style={s.utilityName}>{key}{meters.length > 1 ? ` (${meters.length})` : ""}</Text>
+                            <Text style={s.utilityAmount}>${utilityTotal(utility).toLocaleString()}</Text>
                             <Text style={s.utilityDue}>Due: {formatDueDay(utility.dueDay)}</Text>
                           </View>
                         );

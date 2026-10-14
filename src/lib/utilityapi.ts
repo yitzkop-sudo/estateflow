@@ -12,6 +12,10 @@ export interface UtilityKeyStatus {
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd?: boolean;
   cancelAt?: string | null;
+  /** Active $20/mo subscriptions behind this key (1 per linked meter). */
+  billedMeters?: number;
+  /** Paid checkouts still waiting for a meter to link. */
+  pendingMeters?: number;
 }
 
 // Billing is per utility: one $20/mo subscription per utility key. Paying
@@ -42,6 +46,22 @@ export interface UtilityAuthForm {
 export interface SupportedUtility {
   uid: string;
   name: string;
+  /** Region tags, e.g. ["NY"] / ["NJ"]. Empty = national / other. */
+  states?: string[];
+  /**
+   * How this provider syncs:
+   *  auto        → UtilityAPI credential sync ($20/mo path)
+   *  arcadia     → Arcadia Plug sync, NJ only (higher NJ meter price)
+   *  greenbutton → Green Button Connect via utility / NYSERDA IEDR hub
+   *  download    → Green Button Download from My Account, then manual entry
+   */
+  method?: "auto" | "arcadia" | "greenbutton" | "download";
+  /** True UtilityAPI ID when this entry aliases one (e.g. NY-NGRID → NATIONALGRID). */
+  utilityApiUid?: string | null;
+  /** Browser URL for Green Button / My Account handoff (non-auto providers). */
+  connectUrl?: string;
+  loginUrl?: string;
+  note?: string;
 }
 
 /** Whether a paid plan is configured server-side (always true for us). */
@@ -122,17 +142,24 @@ export async function getAuthFormStatus(formUid: string): Promise<AuthFormStatus
  * Start subscribing ONE utility (returns a Stripe Checkout / portal URL).
  * Every connect pays — a utilityKey is required so the subscription is
  * tagged to the right record. Already covered → billing portal instead.
+ * NJ (Arcadia) meters bill the higher NJ price: pass engine + providerUid
+ * so the server picks ARCADIA_METER_PRICE_ID (margin-guarded). UtilityAPI
+ * stays $20/mo and is untouched.
  */
 export async function startUtilitySubscription(
   utilityKey: string,
-  forceNew?: boolean
+  forceNew?: boolean,
+  engine?: "utilityapi" | "arcadia",
+  providerUid?: string
 ): Promise<{
   url: string;
   alreadyActive: boolean;
+  engine?: string;
+  pricingNote?: string | null;
 }> {
-  return apiPost<{ url: string; alreadyActive: boolean }>(
+  return apiPost<{ url: string; alreadyActive: boolean; engine?: string; pricingNote?: string | null }>(
     "/create-utility-subscription",
-    forceNew ? { utilityKey, forceNew: true } : { utilityKey }
+    { utilityKey, ...(forceNew ? { forceNew: true } : {}), ...(engine ? { engine } : {}), ...(providerUid ? { providerUid } : {}) }
   );
 }
 
@@ -220,6 +247,41 @@ export async function getBillingInvoices(limit = 10): Promise<{ invoices: Billin
   return apiGet<{ invoices: BillingInvoice[] }>(`/billing-invoices?limit=${limit}`);
 }
 
+/** NJ (Arcadia) meter price + margin info for provider rows. No sub needed. */
+export async function getArcadiaPricing(): Promise<{
+  priceId: string;
+  priceCents: number;
+  priceDollars: string;
+  costCents: number;
+  marginCents: number;
+  currency: string;
+  engine: string;
+}> {
+  return apiGet("/arcadia-pricing");
+}
+
+/** Start an NJ (Arcadia) credential handoff; returns browser URL + id. */
+export async function createArcadiaConnect(
+  providerUid: string,
+  utilityKey: string
+): Promise<{ url: string; correlationId: string; providerUid: string; utilityKey: string }> {
+  return apiPost("/arcadia-connect", { providerUid, utilityKey });
+}
+
+/** Has the NJ provider sign-in for this handoff completed yet? (polling) */
+export async function getArcadiaStatus(
+  correlationId: string
+): Promise<{ completed: boolean; credentialId: string | null; status: string | null; credentialCount: number }> {
+  return apiGet(`/arcadia-status?correlationId=${encodeURIComponent(correlationId)}`);
+}
+
+/** Complete an NJ authorization and return the linked bill data. */
+export async function linkArcadiaToProperty(
+  correlationId: string,
+  utilityKey?: string
+): Promise<LinkedUtilityData & { engine: string; billedMeters?: number }> {
+  return apiPost("/link-arcadia", { correlationId, ...(utilityKey ? { utilityKey } : {}) });
+}
 /**
  * Confirm a just-completed Stripe Checkout without waiting for webhooks.
  * Activates the entitlement from Stripe directly and reports if THIS

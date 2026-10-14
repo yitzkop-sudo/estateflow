@@ -3,8 +3,10 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Image,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,8 +15,11 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ScreenHeader } from "../components/screen-header";
 import { auth } from "../lib/firebase";
+import { openExternalUrl } from "../lib/openExternal";
 import {
+  getArcadiaPricing,
   getSupportedUtilities,
   type SupportedUtility,
 } from "../lib/utilityapi";
@@ -41,6 +46,9 @@ const cleanError = (e: any, fallback: string) => {
 export default function ConnectUtility() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const lockedUtility = params.lockUtility === "1";
+  const meterLabel = typeof params.meterLabel === "string" ? params.meterLabel : "";
+  const newMeter = params.newMeter === "1";
   const [utilityKey, setUtilityKey] = useState<UtilityKey>(
     typeof params.utilityKey === "string" && (UTILITY_KEYS as readonly string[]).includes(params.utilityKey)
       ? (params.utilityKey as UtilityKey)
@@ -52,6 +60,33 @@ export default function ConnectUtility() {
   const [providerQuery, setProviderQuery] = useState("");
   const [selectedProvider, setSelectedProvider] = useState<SupportedUtility | null>(null);
   const [providersCollapsed, setProvidersCollapsed] = useState(false);
+  const [region, setRegion] = useState<"ALL" | "NJ" | "NY">("ALL");
+
+  /** True UtilityAPI ID for the paid flow (aliases like NY-NGRID resolve). */
+  const effectiveUtilityUid = (p: SupportedUtility | null) => {
+    if (!p) return undefined;
+    if (p.method && p.method !== "auto" && p.method !== "arcadia") return undefined;
+    return p.utilityApiUid || p.uid;
+  };
+
+  const isArcadia = (p: SupportedUtility | null) => p?.method === "arcadia";
+  const isPortalOnly = (p: SupportedUtility | null) =>
+    !!p?.method && p.method !== "auto" && p.method !== "arcadia";
+
+  const methodBadge = (p: SupportedUtility) => {
+    if (p.method === "arcadia") return { label: "Auto-sync", color: "#2DD4BF" };
+    if (!p.method || p.method === "auto") return { label: "Auto-sync", color: "#34D399" };
+    if (p.method === "greenbutton") return { label: "Green Button", color: "#60A5FA" };
+    return { label: "Bill import", color: "#FBBF24" };
+  };
+
+  // NJ (Arcadia) meter price for row copy — best effort, falls back silently.
+  const [arcadiaPrice, setArcadiaPrice] = useState<string | null>(null);
+  useEffect(() => {
+    getArcadiaPricing()
+      .then((pr) => setArcadiaPrice(pr.priceDollars))
+      .catch(() => {});
+  }, []);
 
   const pickProvider = (p: SupportedUtility) => {
     if (selectedProvider?.uid === p.uid) {
@@ -88,7 +123,15 @@ export default function ConnectUtility() {
   }, [loadProviders, router]);
 
   const query = providerQuery.trim().toLowerCase();
-  const filteredProviders = (providers || [])
+  const regionFiltered = (providers || []).filter((p) => {
+    if (region === "ALL") return true;
+    const states = (p.states || []).map((s) => s.toUpperCase());
+    if (states.includes(region)) return true;
+    // Fallback: name match so NJ/NY utilities without tags still surface.
+    if (region === "NJ") return /pse&g|jcp|jersey|atlantic|rockland|elizabethtown|south jersey/i.test(p.name);
+    return /con ed|national grid|pseg.*long|orange|nyseg|rg&e|rochester|central hudson|national fuel|iedr/i.test(p.name);
+  });
+  const filteredProviders = regionFiltered
     .filter(
       (p) =>
         !query ||
@@ -101,13 +144,69 @@ export default function ConnectUtility() {
   const visibleProviders =
     selectedProvider && providersCollapsed ? [selectedProvider] : filteredProviders;
 
-  const goNext = () => {
+  const goNext = async () => {
+    // NY Green Button + Download providers are NOT on any auto-sync
+    // network — never send them to checkout. Open the utility portal
+    // instead, then the user enters the bill manually.
+    if (isPortalOnly(selectedProvider)) {
+      const p = selectedProvider!;
+      const url = p.connectUrl || p.loginUrl;
+      if (url) {
+        const opened = await openExternalUrl(async () => url);
+        if (!opened) {
+          Alert.alert(
+            p.name,
+            `Open this in your browser to share or download usage:\n${url}\n\nThen enter the bill amount manually on the property form.`
+          );
+          try {
+            await Linking.openURL(url);
+          } catch {}
+          return;
+        }
+        Alert.alert(
+          p.name,
+          p.method === "greenbutton"
+            ? "Share your usage with Green Button Connect in the tab that opened (statewide NY hub: NYSERDA IEDR covers Con Ed, NYSEG, RG&E, O&R, PSEG-LI, Central Hudson). Then enter the bill amount manually on the property form — no auto-sync charge for this provider."
+            : "Sign in to My Account in the tab that opened, download Green Button usage / your latest bill, then enter the amount manually on the property form — no auto-sync charge for this provider."
+        );
+        return;
+      }
+      Alert.alert(
+        p.name,
+        p.note || "This provider syncs via Green Button / manual bill entry — no auto-sync charge."
+      );
+      return;
+    }
+    // Paid engines: UtilityAPI ($20/mo) and NJ Arcadia (higher NJ price).
+    // The server picks the Stripe price from the engine — the app just
+    // forwards it.
+    const apiUid = effectiveUtilityUid(selectedProvider);
+    const engine = isArcadia(selectedProvider) ? "arcadia" : undefined;
     router.push({
       pathname: "/connect-payment",
-      params: selectedProvider
-        ? { utilityKey, providerUid: selectedProvider.uid, providerName: selectedProvider.name }
-        : { utilityKey },
+      params: {
+        ...(selectedProvider
+          ? {
+              utilityKey,
+              providerUid: apiUid || selectedProvider.uid,
+              providerName: selectedProvider.name,
+              ...(engine ? { engine } : {}),
+            }
+          : { utilityKey }),
+        ...(newMeter ? { newMeter: "1" } : {}),
+      },
     });
+  };
+
+  const openProviderPortal = async (p: SupportedUtility) => {
+    const url = p.connectUrl || p.loginUrl;
+    if (!url) return;
+    const opened = await openExternalUrl(async () => url);
+    if (!opened) {
+      try {
+        await Linking.openURL(url);
+      } catch {}
+    }
   };
 
   return (
@@ -115,19 +214,12 @@ export default function ConnectUtility() {
       <Image source={require("../assets/login-bg.png")} style={styles.backgroundImage} resizeMode="cover" />
       <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(5,10,20,0.78)" }]} />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.headerContainer}>
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <TouchableOpacity
-              onPress={() => (router.canGoBack() ? router.back() : router.replace("/add-property"))}
-              style={styles.backBtn}
-            >
-              <Feather name="arrow-left" size={SCREEN_WIDTH < 400 ? 20 : 24} color="white" />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Connect Provider</Text>
-          </View>
-          <Text style={styles.headerSubtitle}>Pick what to connect and who provides it.</Text>
-        </View>
+        <ScreenHeader
+          title="Connect Provider"
+          subtitle={lockedUtility ? `Linking ${utilityKey}${meterLabel ? ` · ${meterLabel}` : ""} — pick the provider.` : "Pick what to connect and who provides it."}
+        />
 
+        {lockedUtility ? null : (
         <View style={styles.cardSection}>
           <Text style={styles.sectionTitle}>Which utility?</Text>
           <View style={styles.chipRow}>
@@ -145,10 +237,37 @@ export default function ConnectUtility() {
             })}
           </View>
         </View>
+        )}
 
         <View style={styles.cardSection}>
           <Text style={styles.sectionTitle}>Choose your provider</Text>
           <Text style={styles.sectionSubtitle}>The sign-in page opens straight on this provider.</Text>
+          <View style={styles.chipRow}>
+            {(["ALL", "NJ", "NY"] as const).map((r) => {
+              const active = region === r;
+              return (
+                <TouchableOpacity
+                  key={r}
+                  style={[styles.chip, active && styles.chipActive]}
+                  onPress={() => {
+                    setRegion(r);
+                    setProvidersCollapsed(false);
+                  }}
+                >
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {r === "ALL" ? "All" : r === "NJ" ? "New Jersey" : "New York"}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {region !== "ALL" ? (
+            <Text style={styles.finePrint}>
+              {region === "NY"
+                ? "NY: National Grid auto-syncs via UtilityAPI ($20/mo). Con Ed, PSEG-LI, O&R, NYSEG, RG&E, Central Hudson + National Fuel share via the free statewide Green Button hub (NYSERDA IEDR) — then enter the bill manually."
+                : `NJ: PSE&G, JCP&L, Atlantic City Electric, Rockland Electric + NJ gas utilities auto-sync via Arcadia${arcadiaPrice ? ` ($${arcadiaPrice}/mo per meter)` : ""} — monthly bills pull automatically, no manual entry.`}
+            </Text>
+          ) : null}
           {providersLoading ? (
             <ActivityIndicator size="small" color="#3B82F6" style={{ marginTop: 12 }} />
           ) : providers && providers.length > 0 ? (
@@ -157,7 +276,7 @@ export default function ConnectUtility() {
                 <Feather name="search" size={14} color="#64748B" />
                 <TextInput
                   style={styles.searchInput}
-                      placeholder="Search providers (e.g. PG&E)"
+                      placeholder="Search providers (e.g. Con Edison, PSE&G)"
                   placeholderTextColor="#64748B"
                   value={providerQuery}
                   onChangeText={setProviderQuery}
@@ -182,6 +301,7 @@ export default function ConnectUtility() {
               ) : null}
               {visibleProviders.map((p) => {
                 const selected = selectedProvider?.uid === p.uid;
+                const badge = methodBadge(p);
                 return (
                   <TouchableOpacity
                     key={p.uid}
@@ -191,9 +311,20 @@ export default function ConnectUtility() {
                     <View style={[styles.radio, selected && styles.radioActive]}>
                       {selected ? <Feather name="check" size={12} color="#FFFFFF" /> : null}
                     </View>
-                    <Text style={[styles.providerName, selected && styles.providerNameActive]} numberOfLines={1}>
-                      {p.name}
-                    </Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.providerName, selected && styles.providerNameActive]} numberOfLines={1}>
+                        {p.name}
+                      </Text>
+                      {(p.states?.length || p.method) ? (
+                        <Text style={styles.providerSub} numberOfLines={1}>
+                          {(p.states || []).join(" · ")}
+                          {(p.states?.length ? "  •  " : "") + badge.label}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <View style={[styles.badge, { borderColor: `${badge.color}55`, backgroundColor: `${badge.color}14` }]}>
+                      <Text style={[styles.badgeText, { color: badge.color }]}>{badge.label}</Text>
+                    </View>
                   </TouchableOpacity>
                 );
               })}
@@ -217,15 +348,51 @@ export default function ConnectUtility() {
           )}
         </View>
 
+        {selectedProvider && isArcadia(selectedProvider) ? (
+          <View style={styles.cardSection}>
+            <Text style={styles.sectionTitle}>NJ auto-sync (Arcadia)</Text>
+            <Text style={styles.sectionSubtitle}>
+              {selectedProvider.note || "Monthly bills pull automatically."}
+              {arcadiaPrice ? ` Bills at $${arcadiaPrice}/mo per meter — priced above Arcadia cost so every NJ meter profits.` : ""}
+            </Text>
+          </View>
+        ) : null}
+
+        {selectedProvider && isPortalOnly(selectedProvider) ? (
+          <View style={styles.cardSection}>
+            <Text style={styles.sectionTitle}>
+              {selectedProvider.method === "greenbutton" ? "Green Button path (free)" : "Bill import path (free)"}
+            </Text>
+            <Text style={styles.sectionSubtitle}>
+              {selectedProvider.note || "This provider is not on UtilityAPI auto-sync — no $20 charge."}
+            </Text>
+            <TouchableOpacity style={styles.retryButton} onPress={() => openProviderPortal(selectedProvider)}>
+              <Feather name="external-link" size={13} color="#60A5FA" style={{ marginRight: 6 }} />
+              <Text style={styles.retryText}>
+                Open {selectedProvider.method === "greenbutton" ? "Green Button portal" : "My Account"} for {selectedProvider.name}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         <TouchableOpacity
           style={[styles.continueButton, !selectedProvider && providers && providers.length > 0 && { opacity: 0.6 }]}
           onPress={goNext}
           disabled={!selectedProvider && !!providers && providers.length > 0}
         >
           <Text style={styles.continueText}>
-            {selectedProvider ? `Continue with ${selectedProvider.name}` : "Choose a provider to continue"}
+            {selectedProvider
+              ? isPortalOnly(selectedProvider)
+                ? `Open portal for ${selectedProvider.name}`
+                : `Continue with ${selectedProvider.name}${isArcadia(selectedProvider) && arcadiaPrice ? ` · $${arcadiaPrice}/mo` : ""}`
+              : "Choose a provider to continue"}
           </Text>
-          <Feather name="arrow-right" size={16} color="#FFFFFF" style={{ marginLeft: 8 }} />
+          <Feather
+            name={isPortalOnly(selectedProvider) ? "external-link" : "arrow-right"}
+            size={16}
+            color="#FFFFFF"
+            style={{ marginLeft: 8 }}
+          />
         </TouchableOpacity>
         {!selectedProvider && (!providers || providers.length === 0) ? (
           <TouchableOpacity style={styles.skipButton} onPress={goNext}>
@@ -262,6 +429,9 @@ const styles = StyleSheet.create({
   radioActive: { backgroundColor: "#3B82F6", borderColor: "#3B82F6" },
   providerName: { flex: 1, color: "#CBD5E1", fontSize: 13, fontWeight: "600" },
   providerNameActive: { color: "#FFFFFF", fontWeight: "800" },
+  providerSub: { color: "#64748B", fontSize: 11, fontWeight: "600", marginTop: 2 },
+  badge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1 },
+  badgeText: { fontSize: 10, fontWeight: "800" },
   finePrint: { color: "#64748B", fontSize: 12, lineHeight: 17, marginVertical: 8 },
   retryButton: { flexDirection: "row", alignItems: "center", marginTop: 8 },
   retryText: { color: "#60A5FA", fontSize: 13, fontWeight: "700" },

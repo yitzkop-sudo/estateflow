@@ -14,20 +14,23 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ScreenHeader } from "../components/screen-header";
 import { CheckoutSheet, isCheckoutSheetAvailable, type CheckoutRequest } from "../components/checkout-sheet";
 import { auth } from "../lib/firebase";
 import { openExternalUrl } from "../lib/openExternal";
 import {
   confirmUtilitySubscription,
+  getArcadiaPricing,
   getUtilitySubscriptionStatus,
   startUtilitySubscription,
   type UtilitySubStatus,
 } from "../lib/utilityapi";
 
 /**
- * CONNECT FLOW — Step 2 of 3: Stripe checkout ($20/meter).
- * On payment (auto-detected by polling, or the manual button) this screen
- * replaces itself with /connect-authorize so Back never lands here again.
+ * CONNECT FLOW — Step 2 of 3: Stripe checkout (per-meter).
+ * UtilityAPI meters bill $20/mo; NJ (Arcadia) meters bill the higher NJ
+ * price (margin-guarded server-side). On payment this screen replaces
+ * itself with /connect-authorize so Back never lands here again.
  */
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -38,6 +41,12 @@ export default function ConnectPayment() {
   const utilityKey = typeof params.utilityKey === "string" ? params.utilityKey : "Electric";
   const providerUid = typeof params.providerUid === "string" ? params.providerUid : null;
   const providerName = typeof params.providerName === "string" ? params.providerName : null;
+  const engine = params.engine === "arcadia" ? "arcadia" : "utilityapi";
+  // Extra meter: every linked meter bills its own per-meter subscription.
+  const newMeter = params.newMeter === "1";
+
+  const [njPrice, setNjPrice] = useState<string | null>(null);
+  const priceLabel = engine === "arcadia" ? (njPrice ? `$${njPrice}/mo` : "NJ price/mo") : "$20.00/mo";
 
   const [subStatus, setSubStatus] = useState<UtilitySubStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,10 +70,10 @@ export default function ConnectPayment() {
     router.replace({
       pathname: "/connect-authorize",
       params: providerUid
-        ? { utilityKey, providerUid, providerName: providerName || "" }
+        ? { utilityKey, providerUid, providerName: providerName || "", ...(engine === "arcadia" ? { engine } : {}) }
         : { utilityKey },
     });
-  }, [router, stopPoll, utilityKey, providerUid, providerName]);
+  }, [router, stopPoll, utilityKey, providerUid, providerName, engine]);
 
   // This screen always renders — no silent skipping. Subscribed users get an
   // explicit Continue button instead of the pay button. Truth comes from
@@ -77,6 +86,10 @@ export default function ConnectPayment() {
     }
     (async () => {
       try {
+        if (engine === "arcadia") {
+          // NJ price for display; checkout itself re-validates margin server-side.
+          await getArcadiaPricing().then((p) => setNjPrice(p.priceDollars)).catch(() => null);
+        }
         // Confirm first (heals stale records), then load display status.
         await confirmUtilitySubscription(undefined, utilityKey).catch(() => null);
         const s = await getUtilitySubscriptionStatus().catch(() => null);
@@ -93,7 +106,7 @@ export default function ConnectPayment() {
         setLoading(false);
       }
     })();
-  }, [router, utilityKey]);
+  }, [router, utilityKey, engine]);
 
   // Watch for the new subscription so paying flows straight into step 3.
   // Uses the confirm endpoint (verifies with Stripe directly) so a slow or
@@ -158,7 +171,7 @@ export default function ConnectPayment() {
     setError(null);
     try {
       if (Platform.OS !== "web" && isCheckoutSheetAvailable()) {
-        const res = await startUtilitySubscription(utilityKey, forceNew);
+        const res = await startUtilitySubscription(utilityKey, forceNew, engine, providerUid || undefined);
         if (res.alreadyActive) {
           goAuthorize();
           return;
@@ -166,7 +179,7 @@ export default function ConnectPayment() {
         setCheckout({
           url: res.url,
           title: `Pay · ${utilityKey}${providerName ? ` · ${providerName}` : ""}`,
-          subtitle: "$20/mo · secure Stripe checkout",
+          subtitle: `${priceLabel} · secure Stripe checkout`,
           successMarkers: ["utility=subscribed"],
           cancelMarkers: ["utility=canceled"],
         });
@@ -174,7 +187,7 @@ export default function ConnectPayment() {
       }
       let alreadyActive = false;
       const opened = await openExternalUrl(async () => {
-        const res = await startUtilitySubscription(utilityKey, forceNew);
+        const res = await startUtilitySubscription(utilityKey, forceNew, engine, providerUid || undefined);
         alreadyActive = res.alreadyActive;
         if (alreadyActive) return "";
         return res.url;
@@ -233,21 +246,17 @@ export default function ConnectPayment() {
   // per-key map we know nothing per key, so nothing shows covered (the
   // server re-verifies on every payment/connect action anyway).
   const covered = !!subStatus?.subscriptions?.[utilityKey]?.active;
+  const pending = subStatus?.subscriptions?.[utilityKey]?.pendingMeters ?? 0;
 
   return (
     <SafeAreaView style={styles.container}>
       <Image source={require("../assets/login-bg.png")} style={styles.backgroundImage} resizeMode="cover" />
       <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(5,10,20,0.78)" }]} />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.headerContainer}>
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-              <Feather name="arrow-left" size={SCREEN_WIDTH < 400 ? 20 : 24} color="white" />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Payment</Text>
-          </View>
-          <Text style={styles.headerSubtitle}>Pay per meter, then authorize.</Text>
-        </View>
+        <ScreenHeader
+          title="Payment"
+          subtitle="Pay per meter, then authorize."
+        />
 
         {error ? (
           <TouchableOpacity style={styles.errorBanner} onPress={() => setError(null)}>
@@ -280,39 +289,45 @@ export default function ConnectPayment() {
             </View>
             <View style={styles.priceRow}>
               <Text style={styles.priceLabel}>Each connected meter</Text>
-              <Text style={styles.priceValue}>$20.00/mo</Text>
+              <Text style={styles.priceValue}>{priceLabel}</Text>
             </View>
             <Text style={styles.finePrint}>
-              {utilityKey} costs $20/mo on its own subscription — other utilities each need theirs. Stay on this screen after paying; it moves on by itself.
+              {utilityKey} costs {priceLabel} per connected meter{engine === "arcadia" ? " (NJ auto-sync via Arcadia — priced above cost so every meter profits)" : ""} — other utilities each need theirs. Stay on this screen after paying; it moves on by itself.
             </Text>
             {covered ? (
               <>
                 <View style={styles.subscribedRow}>
                   <Feather name="check-circle" size={16} color="#34D399" />
                   <Text style={styles.subscribedText}>
-                    {utilityKey} is covered — linking it bills $20/mo on its subscription.
+                    {newMeter
+                      ? pending > 0
+                        ? `${utilityKey} extra meter already paid — continue to authorize.`
+                        : `This meter needs its own ${priceLabel} subscription (each linked meter bills separately).`
+                      : `${utilityKey} is covered — linking another meter adds ${priceLabel} to this subscription (prorated).`}
                   </Text>
                 </View>
-                <TouchableOpacity style={styles.payButton} onPress={goAuthorize}>
-                  <Text style={styles.payButtonText}>Continue to authorize</Text>
-                  <Feather name="arrow-right" size={16} color="#FFFFFF" style={{ marginLeft: 8 }} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.payAgainButton}
-                  onPress={() =>
-                    Alert.alert(
-                      "Start another subscription?",
-                      `${utilityKey} is already covered. This starts a SECOND $20/mo subscription for it. Continue?`,
-                      [
-                        { text: "Cancel", style: "cancel" },
-                        { text: "Pay $20 again", onPress: () => handlePay(true) },
-                      ]
-                    )
-                  }
-                  disabled={paying}
-                >
-                  <Text style={styles.payAgainText}>Pay for {utilityKey} again ($20/mo extra)</Text>
-                </TouchableOpacity>
+                {(!newMeter || pending > 0) && (
+                  <TouchableOpacity style={styles.payButton} onPress={goAuthorize}>
+                    <Text style={styles.payButtonText}>Continue to authorize</Text>
+                    <Feather name="arrow-right" size={16} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                  </TouchableOpacity>
+                )}
+                {newMeter && pending === 0 && (
+                  <TouchableOpacity
+                    style={[styles.payButton, paying && { opacity: 0.7 }]}
+                    onPress={() => handlePay(true)}
+                    disabled={paying}
+                  >
+                    {paying ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <Feather name="lock" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
+                        <Text style={styles.payButtonText}>Pay {priceLabel} for this meter</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
               </>
             ) : (
               <TouchableOpacity
@@ -325,7 +340,7 @@ export default function ConnectPayment() {
                 ) : (
                   <>
                     <Feather name="lock" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
-                    <Text style={styles.payButtonText}>Pay $20/meter & Continue</Text>
+                        <Text style={styles.payButtonText}>Pay {priceLabel.replace("/mo", "")}/meter & Continue</Text>
                   </>
                 )}
               </TouchableOpacity>

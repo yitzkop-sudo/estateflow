@@ -34,6 +34,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ScreenHeader } from "../components/screen-header";
 import { computeNextDueDate } from "../lib/date";
 import { auth, db } from "../lib/firebase";
 import { scheduleRentReminders } from "../lib/notifications";
@@ -47,6 +48,8 @@ type Tenant = {
   propertyId: string;
   propertyName: string;
   tenantName: string;
+  tenantEmail?: string;
+  autopay?: { active?: boolean; cancelAtPeriodEnd?: boolean } | null;
   rentAmount: number;
   dueDay: number | "last";
   notes: string;
@@ -247,7 +250,8 @@ export default function Tenants() {
       list = list.filter(
         (t) =>
           t.tenantName?.toLowerCase().includes(q) ||
-          t.propertyName?.toLowerCase().includes(q)
+          t.propertyName?.toLowerCase().includes(q) ||
+          (t as any).tenantEmail?.toLowerCase().includes(q)
       );
     }
     return list;
@@ -427,21 +431,19 @@ export default function Tenants() {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
 
           {/* ── HEADER ── */}
-          <View style={s.headerRow}>
-            <TouchableOpacity
-              onPress={() => router.canGoBack() ? router.back() : router.replace("/dashboard")}
-              style={s.backBtn}
-            >
-              <Feather name="arrow-left" size={22} color="#fff" />
-            </TouchableOpacity>
-            <Text style={s.headerTitle}>Tenant Assignment</Text>
-            {(allTenants.length > 0 || searchOpen) && (
-              <TouchableOpacity style={s.searchToggleBtn} onPress={toggleSearch}>
-                <Feather name={searchOpen ? "x" : "search"} size={20} color="#fff" />
-              </TouchableOpacity>
-            )}
-            {allTenants.length === 0 && !searchOpen && <View style={{ width: 44 }} />}
-          </View>
+          <ScreenHeader
+            title="Tenant Assignment"
+            subtitle="Track rent and tenants"
+            right={
+              (allTenants.length > 0 || searchOpen) ? (
+                <TouchableOpacity style={s.searchToggleBtn} onPress={toggleSearch}>
+                  <Feather name={searchOpen ? "x" : "search"} size={20} color="#fff" />
+                </TouchableOpacity>
+              ) : (
+                <View style={{ width: 44 }} />
+              )
+            }
+          />
 
           {/* ── SUMMARY CARDS ── */}
           <View style={s.summaryRow}>
@@ -579,6 +581,9 @@ export default function Tenants() {
                           {tenant.tenantName}
                         </Text>
                         <Text style={s.propertyName} numberOfLines={1}>{tenant.propertyName}</Text>
+                        {(tenant as any).tenantEmail ? (
+                          <Text style={s.tenantEmail} numberOfLines={1}>{(tenant as any).tenantEmail}</Text>
+                        ) : null}
                       </View>
                       <TouchableOpacity style={s.moreBtn} onPress={() => {
                         setActionTenant(tenant);
@@ -611,6 +616,14 @@ export default function Tenants() {
                               <Feather name={status!.icon} size={12} color={status!.color} />
                               <Text style={[s.statusText, { color: status!.color }]}>{status!.label}</Text>
                             </View>
+                            {(tenant as any).autopay?.active && (
+                              <View style={[s.statusBadge, { backgroundColor: "rgba(59,130,246,0.15)", borderColor: "rgba(59,130,246,0.4)", marginTop: 4 }]}>
+                                <Feather name="refresh-cw" size={12} color="#60A5FA" />
+                                <Text style={[s.statusText, { color: "#60A5FA" }]}>
+                                  Autopay{(tenant as any).autopay?.cancelAtPeriodEnd ? " ending" : ""}
+                                </Text>
+                              </View>
+                            )}
                           </View>
                         </View>
 
@@ -896,6 +909,7 @@ const s = StyleSheet.create({
   cardInfoWrap: { flex: 1, marginLeft: 12 },
   tenantName: { color: "#fff", fontSize: SW < 400 ? 16 : 17, fontWeight: "900" },
   propertyName: { color: "#94A3B8", fontSize: SW < 400 ? 12 : 13, marginTop: 2 },
+  tenantEmail: { color: "#60A5FA", fontSize: SW < 400 ? 11 : 12, marginTop: 1 },
   textDim: { color: "#64748B" },
   moreBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.06)", justifyContent: "center", alignItems: "center" },
 

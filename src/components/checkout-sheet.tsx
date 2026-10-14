@@ -29,6 +29,8 @@ export interface CheckoutRequest {
   successMarkers: string[];
   /** URL fragments meaning "canceled" (Stripe cancel_url landing pages). */
   cancelMarkers?: string[];
+  /** Success overlay title. Defaults to "Payment complete". */
+  successTitle?: string;
 }
 
 interface Props {
@@ -254,7 +256,7 @@ export function CheckoutSheet({ request, onSuccess, onCancel }: Props) {
                   <View style={s.checkCircle}>
                     <Feather name="check" size={34} color="#FFFFFF" />
                   </View>
-                  <Text style={s.successTitle}>Payment complete</Text>
+                  <Text style={s.successTitle}>{request.successTitle ?? "Payment complete"}</Text>
                   <Text style={s.overlayText}>Confirming with our servers…</Text>
                 </View>
               ) : null}

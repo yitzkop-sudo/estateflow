@@ -16,6 +16,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ScreenHeader } from "../components/screen-header";
 import { QUICK_QUESTIONS, askAssistant, makeAssistantMessage, makeUserMessage, type AIMessage, type PortfolioContext } from "../lib/ai";
 import { computeNextDueDate } from "../lib/date";
 import { auth, db } from "../lib/firebase";
@@ -123,17 +124,16 @@ export default function AiAssistant() {
       <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(5,10,20,0.80)" }]} />
 
       <SafeAreaView style={{ flex: 1 }}>
-        <View style={s.header}>
-          <TouchableOpacity onPress={() => (router.canGoBack() ? router.back() : router.replace("/dashboard"))} style={s.iconBtn}>
-            <Feather name="arrow-left" size={20} color="#fff" />
-          </TouchableOpacity>
-          <View style={{ flex: 1, marginLeft: 12 }}>
-            <Text style={s.title}>EstateFlow Assistant</Text>
-            <Text style={s.subtitle}>{cloudBadge ? `Cloud AI • live${provider ? ` (${provider})` : ""}` : "Built-in AI • offline-ready"}</Text>
-          </View>
-          <View style={s.sparkle}>
-            <Feather name="zap" size={18} color="#93C5FD" />
-          </View>
+        <View style={{ width: "100%", maxWidth: 768, alignSelf: "center", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "rgba(59,130,246,0.15)" }}>
+          <ScreenHeader
+            title="Provalta Assistant"
+            subtitle={cloudBadge ? `Cloud AI • live${provider ? ` (${provider})` : ""}` : "Built-in AI • offline-ready"}
+            right={
+              <View style={s.sparkle}>
+                <Feather name="zap" size={18} color="#93C5FD" />
+              </View>
+            }
+          />
         </View>
 
         <ScrollView ref={scrollRef} contentContainerStyle={s.list} showsVerticalScrollIndicator={false}>

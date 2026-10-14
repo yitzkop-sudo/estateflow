@@ -3,81 +3,441 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EstateFlow - Property Management</title>
+  <title>Provalta - Property Management</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <style id="estateflow-dashboard-redesign">
+    :root {
+      --ef-bg: #06101f;
+      --ef-panel: rgba(10, 25, 47, .92);
+      --ef-panel-2: #0b1b32;
+      --ef-line: rgba(83, 151, 231, .24);
+      --ef-blue: #2396ff;
+      --ef-cyan: #27d7f2;
+      --ef-text: #f2f7ff;
+      --ef-muted: #9fb3d0;
+    }
+    body {
+      background:
+        radial-gradient(ellipse at 78% 2%, rgba(22, 104, 202, .18), transparent 34%),
+        radial-gradient(ellipse at 8% 40%, rgba(22, 76, 150, .13), transparent 36%),
+        var(--ef-bg) !important;
+      color: var(--ef-text);
+    }
+    .page { min-height: 100vh; }
+    #page-dashboard {
+      background: transparent;
+      padding-bottom: 36px;
+    }
+    #page-dashboard .topbar {
+      min-height: 72px;
+      padding: 0 clamp(18px, 4vw, 56px);
+      background: rgba(4, 13, 27, .88);
+      border-bottom: 1px solid var(--ef-line);
+      box-shadow: 0 10px 35px rgba(0,0,0,.18);
+      backdrop-filter: blur(18px);
+    }
+    #page-dashboard .topbar-left { gap: 12px; }
+    #page-dashboard .topbar-icon {
+      color: #fff;
+      background: linear-gradient(135deg, #20b5ff, #2367ef);
+      width: 38px; height: 38px; display: grid; place-items: center;
+      border-radius: 12px; box-shadow: 0 7px 22px rgba(35,150,255,.28);
+    }
+    #page-dashboard .topbar-title {
+      color: var(--ef-text);
+      font-size: 19px;
+      font-weight: 750;
+      letter-spacing: -.4px;
+    }
+    #page-dashboard .container {
+      width: min(1180px, calc(100% - 40px));
+      max-width: 1180px;
+      padding: 0;
+      margin: 0 auto;
+    }
+    #page-dashboard .greeting {
+      position: relative;
+      overflow: hidden;
+      margin: 26px 0 22px;
+      padding: clamp(28px, 4vw, 48px);
+      min-height: 190px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      border: 1px solid rgba(111, 175, 255, .3);
+      border-radius: 24px;
+      background:
+        linear-gradient(90deg, rgba(4, 16, 34, .98) 0%, rgba(4, 20, 42, .87) 42%, rgba(4, 20, 42, .18) 100%),
+        linear-gradient(0deg, rgba(3, 12, 26, .3), rgba(3, 12, 26, .06)),
+        url('https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=2200&q=90') center center/cover no-repeat;
+      background-size: cover;
+      background-position: center 45%;
+      box-shadow: 0 18px 50px rgba(0,0,0,.22);
+    }
+    #page-dashboard .greeting::after {
+      content: "";
+      position: absolute;
+      width: 240px; height: 240px;
+      right: 4%; top: -110px;
+      border: 1px solid rgba(61, 174, 255, .3);
+      border-radius: 50%;
+      box-shadow: 0 0 0 28px rgba(61,174,255,.04), 0 0 0 56px rgba(61,174,255,.03);
+      pointer-events: none;
+    }
+    #page-dashboard .greeting > * { position: relative; z-index: 1; }
+    #page-dashboard .greeting-line {
+      color: #8edcff;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 3px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+    #page-dashboard .greeting-name {
+      color: #fff;
+      font-size: clamp(30px, 4vw, 46px);
+      line-height: 1.1;
+      font-weight: 800;
+      letter-spacing: -1.5px;
+      margin: 0 0 10px;
+    }
+    #page-dashboard .greeting-sub { color: #d0e0f6; font-size: 15px; }
+    #page-dashboard .card {
+      background: linear-gradient(145deg, rgba(12, 29, 53, .97), rgba(7, 20, 39, .97));
+      border: 1px solid var(--ef-line);
+      border-radius: 18px;
+      color: var(--ef-text);
+      box-shadow: 0 12px 34px rgba(0,0,0,.15);
+    }
+    #page-dashboard .rent-card {
+      position: relative;
+      overflow: hidden;
+      padding: clamp(22px, 3vw, 32px);
+      margin-bottom: 22px;
+      border-color: rgba(83, 151, 231, .24);
+      /* Match the portal's standard dark navy cards; no decorative watermark. */
+      background: linear-gradient(145deg, rgba(12, 29, 53, .97), rgba(7, 20, 39, .97));
+    }
+    #page-dashboard .rent-card::after { content: none; }
+    #page-dashboard .rent-header, #page-dashboard .rent-amount,
+    #page-dashboard .rent-label, #page-dashboard .rent-details,
+    #page-dashboard .pay-btn, #page-dashboard .paid-banner { position: relative; z-index: 1; }
+    #page-dashboard .rent-status-text { color: #c6d9f2; font-weight: 650; }
+    #page-dashboard .rent-amount {
+      font-size: clamp(38px, 5vw, 52px);
+      font-weight: 800;
+      letter-spacing: -1.5px;
+      margin-top: 14px;
+      color: #fff;
+    }
+    #page-dashboard .rent-label { color: #a9c3e5; margin-top: 1px; }
+    #page-dashboard .rent-details {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      margin: 20px 0 22px;
+    }
+    #page-dashboard .rent-detail {
+      display: flex; align-items: center; gap: 9px;
+      color: #d8e7fb;
+      background: rgba(2, 11, 25, .3);
+      border: 1px solid rgba(128, 181, 245, .18);
+      border-radius: 11px; padding: 10px 13px;
+    }
+    #page-dashboard .rent-detail i { color: #55c5ff; }
+    #page-dashboard .btn.primary, #page-dashboard .pay-btn {
+      background: linear-gradient(100deg, #18baf5, #2878ff);
+      border: 0;
+      border-radius: 12px;
+      color: white;
+      box-shadow: 0 8px 22px rgba(25, 139, 255, .23);
+      font-weight: 750;
+      transition: transform .18s ease, filter .18s ease;
+    }
+    #page-dashboard .btn.primary:hover, #page-dashboard .pay-btn:hover {
+      transform: translateY(-1px); filter: brightness(1.08);
+    }
+    #page-dashboard .quick-actions {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin: 0 0 30px;
+    }
+    #page-dashboard .quick-action-btn {
+      position: relative;
+      min-height: 112px;
+      display: flex; flex-direction: column; align-items: flex-start;
+      justify-content: center; gap: 12px;
+      padding: 18px;
+      border: 1px solid var(--ef-line);
+      border-radius: 16px;
+      background: linear-gradient(145deg, rgba(13, 32, 58, .95), rgba(8, 21, 41, .95));
+      color: #e8f2ff;
+      text-align: left;
+      transition: border-color .18s ease, transform .18s ease, background .18s ease;
+    }
+    #page-dashboard .quick-action-btn:hover {
+      transform: translateY(-3px);
+      border-color: rgba(45, 171, 255, .65);
+      background: linear-gradient(145deg, rgba(17, 48, 84, .98), rgba(8, 25, 49, .98));
+    }
+    #page-dashboard .quick-icon {
+      width: 42px; height: 42px; border-radius: 13px;
+      display: grid; place-items: center; font-size: 17px;
+      color: #fff;
+      background: linear-gradient(135deg, #149be8, #285ee7);
+      box-shadow: 0 6px 18px rgba(27, 120, 238, .2);
+    }
+    #page-dashboard .quick-icon.green { background: linear-gradient(135deg, #00bda5, #087d87); }
+    #page-dashboard .quick-icon.yellow { background: linear-gradient(135deg, #8b6bff, #4b48d5); }
+    #page-dashboard .quick-icon.purple { background: linear-gradient(135deg, #9c68ff, #5a3ec8); }
+    #page-dashboard .quick-action-btn > span { font-size: 13px; font-weight: 700; }
+    #page-dashboard .section-header {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 14px; margin: 26px 0 12px;
+    }
+    #page-dashboard .section-header h2 {
+      font-size: 18px; font-weight: 750; color: #f1f6ff;
+      letter-spacing: -.3px;
+    }
+    #page-dashboard .link-btn { color: #4ac7ff; font-weight: 700; }
+    #page-dashboard .list-card { padding: 6px 20px; }
+    #page-dashboard .list-card > * { border-color: rgba(103, 153, 214, .15); }
+    #page-dashboard .empty-text { color: var(--ef-muted); padding: 20px 0; }
+    #page-dashboard .btn-icon {
+      border: 1px solid var(--ef-line);
+      border-radius: 11px;
+      color: #eaf5ff;
+      background: rgba(21, 47, 79, .75);
+    }
+    #page-dashboard .no-tenant-card, #page-dashboard #link-card, #page-dashboard #locked-card {
+      padding: 26px;
+    }
+    #page-dashboard .paid-banner { color: #7cf0d0; }
+    #page-dashboard .badge { background: #1b9cff; color: white; }
+    @media (min-width: 900px) {
+      /* Keep the dashboard sections in normal document flow. The previous
+         two-column grid separated the Maintenance heading from its card. */
+      #page-dashboard .container {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+      }
+      #page-dashboard #payments-header,
+      #page-dashboard #payments-list,
+      #page-dashboard #requests-header,
+      #page-dashboard #requests-list,
+      #page-dashboard #utilities-header,
+      #page-dashboard #utilities-list {
+        width: 100%;
+        grid-column: auto;
+      }
+      #page-dashboard #requests-header,
+      #page-dashboard #utilities-header { margin-top: 26px !important; }
+      #page-dashboard .section-header { margin-bottom: 12px; }
+    }
+    @media (max-width: 700px) {
+      #page-dashboard .container { width: min(100% - 28px, 560px); }
+      #page-dashboard .topbar { padding: 0 16px; min-height: 64px; }
+      #page-dashboard .greeting { margin-top: 16px; min-height: 170px; padding: 24px; border-radius: 18px; }
+      #page-dashboard .greeting-name { font-size: 32px; }
+      #page-dashboard .quick-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      #page-dashboard .quick-action-btn { min-height: 102px; padding: 14px; }
+      #page-dashboard .rent-card { padding: 22px 18px; }
+      #page-dashboard .rent-details { flex-direction: column; }
+      #page-dashboard .list-card { padding: 4px 13px; overflow-x: auto; }
+      #page-dashboard .section-header h2 { font-size: 16px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #page-dashboard * { transition: none !important; }
+    }
+  </style>
+
+  <style id="estateflow-rent-card-cleanup">
+    /* Provalta rent-card cleanup */
+    #page-dashboard .rent-card {
+      background: linear-gradient(145deg, rgba(12, 29, 53, .97), rgba(7, 20, 39, .97)) !important;
+      border-color: rgba(83, 151, 231, .24) !important;
+    }
+    #page-dashboard .rent-card::after { content: none !important; display: none !important; }
+  </style>
+
+  <style id="estateflow-login-redesign">
+    #page-login { min-height:100vh; background:#06101f; color:#f2f7ff; }
+    #page-login .login-container { width:100%; min-height:100vh; display:grid; grid-template-columns:minmax(0,1.02fr) minmax(480px,.98fr); align-items:stretch; padding:0; gap:0; max-width:none; }
+    #page-login .login-showcase { position:relative; isolation:isolate; overflow:hidden; min-height:100vh; padding:clamp(32px,6vw,88px) clamp(28px,6vw,100px); display:flex; flex-direction:column; justify-content:flex-start; background:linear-gradient(180deg,rgba(3,16,36,.28),rgba(2,12,28,.9)),linear-gradient(90deg,rgba(2,15,34,.45),rgba(2,15,34,.08)),url('https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1600&q=90') center center/cover no-repeat; }
+    #page-login .login-showcase:after { content:""; position:absolute; inset:0; z-index:-1; background:linear-gradient(135deg,rgba(0,14,33,.2),rgba(0,10,25,.55)); }
+    #page-login .showcase-brand { display:flex; align-items:center; gap:14px; position:relative; z-index:1; }
+    #page-login .showcase-logo { width:52px;height:58px;display:grid;place-items:center;color:#20c7ff;font-size:42px;filter:drop-shadow(0 6px 20px rgba(0,174,255,.28)); }
+    #page-login .showcase-brand-name { color:#fff;font-size:27px;font-weight:800;letter-spacing:-1px;line-height:1.05; }
+    #page-login .showcase-brand-name span { color:#18baff; }
+    #page-login .showcase-brand-name small { display:block;margin-top:8px;color:#b7d7f7;font-size:10px;letter-spacing:4px;font-weight:600; }
+    #page-login .showcase-copy { margin-top:clamp(52px,9vh,110px);max-width:560px;position:relative;z-index:1; }
+    #page-login .showcase-eyebrow { color:#6bdcff;text-transform:uppercase;letter-spacing:3px;font-size:11px;font-weight:800;margin:0 0 18px; }
+    #page-login .showcase-copy h2 { font-size:clamp(42px,5vw,66px);line-height:1.08;letter-spacing:-2.4px;color:#fff;font-weight:850;margin:0 0 20px; }
+    #page-login .showcase-copy h2 span { color:#20baff; }
+    #page-login .showcase-description { max-width:470px;color:#d4e5fa;font-size:17px;line-height:1.65;margin:0; }
+    #page-login .showcase-features { display:grid;gap:22px;margin-top:clamp(32px,5vh,58px);position:relative;z-index:1; }
+    #page-login .showcase-feature { display:flex;align-items:center;gap:16px; }
+    #page-login .feature-icon { width:52px;height:52px;flex:0 0 52px;display:grid;place-items:center;border:1px solid rgba(24,186,255,.65);border-radius:50%;background:rgba(3,32,62,.72);color:#9bdbff;font-size:18px;box-shadow:inset 0 0 20px rgba(24,186,255,.08); }
+    #page-login .showcase-feature strong { display:block;color:#fff;font-size:14px;margin-bottom:5px; }
+    #page-login .showcase-feature small { display:block;color:#c0d5ed;font-size:12px; }
+    #page-login .showcase-footer { margin:auto 0 0;padding-top:38px;color:#9dc9ef;font-size:10px;letter-spacing:3px;font-weight:700;position:relative;z-index:1; }
+    #page-login .showcase-footer span { color:#21bfff;padding:0 9px; }
+    #page-login .login-panel { display:flex;flex-direction:column;justify-content:center;align-items:center;padding:42px clamp(22px,4vw,64px);background:radial-gradient(ellipse at 50% 0%,rgba(19,100,176,.18),transparent 48%),#061326;min-width:0; }
+    #page-login .login-header { text-align:center;width:100%;max-width:500px;margin:0 auto 24px; }
+    #page-login .login-header .logo-wrap { display:none; }
+    #page-login .login-header .logo-text { font-size:35px;line-height:1.1;font-weight:800;letter-spacing:-1.3px;color:#fff;margin:0 0 8px; }
+    #page-login .login-header .logo-text .accent { color:#20baff; }
+    #page-login .login-header .tagline { color:#9ec9ec;letter-spacing:4px;font-size:10px;font-weight:700;margin:0 0 15px; }
+    #page-login .login-header .hero-text { color:#bdd3ed;font-size:15px;margin:0;line-height:1.5; }
+    #page-login .login-card { width:100%;max-width:500px;padding:28px 30px 24px;border-radius:22px;background:linear-gradient(145deg,rgba(8,27,51,.98),rgba(3,16,33,.98));border:1px solid rgba(20,185,255,.62);box-shadow:0 24px 70px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.035); }
+    #page-login .tabs { display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:4px;border:1px solid rgba(79,150,210,.22);border-radius:14px;background:rgba(4,20,40,.8);margin-bottom:25px; }
+    #page-login .tab { min-height:43px;border:0;border-radius:10px;background:transparent;color:#a9c5e5;font-weight:650;transition:background .2s,color .2s,box-shadow .2s; }
+    #page-login .tab.active { background:linear-gradient(100deg,#13b9f5,#0878f9);color:#fff;box-shadow:0 5px 18px rgba(0,137,255,.23); }
+    #page-login .input-group { position:relative;margin-bottom:15px; }
+    #page-login .input-group input { box-sizing:border-box;width:100%;height:54px;padding:0 48px 0 52px;border-radius:13px;border:1px solid rgba(71,145,207,.42);background:rgba(4,23,45,.82);color:#f4f8ff;font-size:14px;outline:none;transition:border-color .2s,box-shadow .2s; }
+    #page-login .input-group input::placeholder { color:#a8c0dd;opacity:1; }
+    #page-login .input-group input:focus { border-color:#1bbdff;box-shadow:0 0 0 3px rgba(27,189,255,.11); }
+    #page-login .input-group .input-icon { position:absolute;left:18px;top:19px;color:#8ebfe9;font-size:16px;pointer-events:none; }
+    #page-login .eye-btn { position:absolute;right:9px;top:8px;width:38px;height:38px;border:0;border-radius:9px;background:transparent;color:#a8c6e8;cursor:pointer; }
+    #page-login .forgot-btn { display:block;margin:-2px 0 18px auto;background:none;border:0;color:#22c7ff;font-size:12px;font-weight:700;cursor:pointer; }
+    #page-login .btn.primary { width:100%;min-height:56px;display:flex;align-items:center;justify-content:center;border:0;border-radius:13px;background:linear-gradient(100deg,#11b9f5,#0878f9);color:white;font-size:15px;font-weight:750;box-shadow:0 10px 25px rgba(0,132,255,.2);transition:filter .2s,transform .2s; }
+    #page-login .btn.primary:hover { filter:brightness(1.08);transform:translateY(-1px); }
+    #page-login .divider { display:flex;align-items:center;gap:14px;color:#9ab8d9;font-size:11px;margin:22px 0 18px; }
+    #page-login .divider:before,#page-login .divider:after { content:"";height:1px;flex:1;background:rgba(115,164,208,.42); }
+    #page-login .google-btn { width:100%;min-height:52px;display:flex;align-items:center;justify-content:center;gap:12px;border:1px solid #18bfff;border-radius:13px;background:rgba(3,19,38,.45);color:#f1f7ff;font-weight:650;transition:background .2s; }
+    #page-login .google-btn:hover { background:rgba(10,64,101,.42); }
+    #page-login .google-logo { width:20px;height:20px; }
+    #page-login .login-help { text-align:center;color:#9db8d8;font-size:11px;line-height:1.6;margin:20px 0 0; }
+    #page-login .login-help span { color:#24c6ff;font-weight:700;margin-left:4px; }
+    #page-login .error-text { color:#ff9aab;font-size:12px; }
+    @media(max-width:900px) { #page-login .login-container { grid-template-columns:minmax(0,.9fr) minmax(420px,1.1fr); } #page-login .login-showcase { padding:34px 28px; } #page-login .showcase-copy h2 { font-size:43px; } #page-login .showcase-description { font-size:14px; } #page-login .showcase-features { gap:18px; } }
+    @media(max-width:700px) { #page-login .login-container { display:block; } #page-login .login-showcase { display:none; } #page-login .login-panel { min-height:100vh;box-sizing:border-box;padding:36px 18px; } #page-login .login-header { margin-bottom:22px; } #page-login .login-header .logo-text { font-size:32px; } #page-login .login-card { padding:22px 18px 20px;border-radius:18px; } }
+    @media(prefers-reduced-motion:reduce) { #page-login * { transition:none !important; } }
+    /* Align sign-in field icons precisely with the input text and center them vertically. */
+    #page-login .input-group { position: relative; }
+    #page-login .input-group input { padding-left: 50px !important; padding-right: 48px !important; }
+    #page-login .input-group > .input-icon {
+      position: absolute !important;
+      left: 18px !important;
+      top: 50% !important;
+      transform: translateY(-50%) !important;
+      width: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      text-align: center;
+      pointer-events: none;
+    }
+    #page-login .input-group .eye-btn {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0;
+    }
+  </style>
+
+
+  <style id="estateflow-login-copy-fix">
+    /* Keep the welcome message centered as a compact, balanced block. */
+    #page-login .login-header .hero-text {
+      display: block;
+      width: 100%;
+      max-width: 440px;
+      margin: 0 auto !important;
+      text-align: center !important;
+      text-wrap: balance;
+    }
+  </style>
+
 </head>
 <body>
   <!-- LOGIN PAGE -->
   <div id="page-login" class="page active">
     <div class="login-container">
-      <div class="login-header">
-        <div class="logo-wrap">
-          <i class="fas fa-building"></i>
+      <section class="login-showcase" aria-label="Provalta tenant portal features">
+        <div class="showcase-brand">
+          <span class="showcase-logo"><i class="fas fa-city"></i></span>
+          <span class="showcase-brand-name">Estate<span>Flow</span><small>TENANT PORTAL</small></span>
         </div>
-        <h1 class="logo-text">Estate<span class="accent">Flow</span></h1>
-        <p class="tagline">Property Management</p>
-        <p class="hero-text">Pay your rent and submit maintenance requests online.</p>
-      </div>
+        <div class="showcase-copy">
+          <p class="showcase-eyebrow">A better renting experience</p>
+          <h2>Your Home.<br>Your <span>Portal.</span></h2>
+          <p class="showcase-description">Pay your rent, submit maintenance requests, and stay connected — all in one place.</p>
+        </div>
+        <div class="showcase-features">
+          <div class="showcase-feature"><span class="feature-icon"><i class="fas fa-house"></i></span><div><strong>Pay Rent</strong><small>Quick, secure, and easy.</small></div></div>
+          <div class="showcase-feature"><span class="feature-icon"><i class="fas fa-wrench"></i></span><div><strong>Submit Maintenance</strong><small>Report issues and track progress.</small></div></div>
+          <div class="showcase-feature"><span class="feature-icon"><i class="fas fa-file-invoice-dollar"></i></span><div><strong>View Your Account</strong><small>Review your payment history.</small></div></div>
+        </div>
+        <p class="showcase-footer">BETTER LIVING <span>/</span> SIMPLER MANAGEMENT</p>
+      </section>
 
-      <div class="card login-card">
-        <div class="tabs">
-          <button class="tab active" onclick="switchAuthTab('login')">Sign In</button>
-          <button class="tab" onclick="switchAuthTab('signup')">Sign Up</button>
+      <section class="login-panel">
+        <div class="login-header">
+          <div class="logo-wrap"><i class="fas fa-building"></i></div>
+          <h1 class="logo-text">Estate<span class="accent">Flow</span></h1>
+          <p class="tagline">TENANT PORTAL</p>
+          <p class="hero-text">Welcome back. Sign in to access your tenant portal.</p>
         </div>
 
-        <div id="auth-login" class="auth-form active">
-          <div class="input-group">
-            <input type="email" id="login-email" placeholder="Email address" autocomplete="email">
-            <i class="fas fa-envelope input-icon"></i>
+        <div class="card login-card">
+          <div class="tabs">
+            <button class="tab active" onclick="switchAuthTab('login')">Sign In</button>
+            <button class="tab" onclick="switchAuthTab('signup')">Sign Up</button>
           </div>
-          <div class="input-group">
-            <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
-            <i class="fas fa-lock input-icon"></i>
-            <button class="eye-btn" onclick="togglePassword('login-password', this)">
-              <i class="fas fa-eye"></i>
-            </button>
+
+          <div id="auth-login" class="auth-form active">
+            <div class="input-group">
+              <input type="email" id="login-email" placeholder="Email address" autocomplete="email">
+              <i class="fas fa-envelope input-icon"></i>
+            </div>
+            <div class="input-group">
+              <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
+              <i class="fas fa-lock input-icon"></i>
+              <button class="eye-btn" onclick="togglePassword('login-password', this)" aria-label="Show or hide password"><i class="fas fa-eye"></i></button>
+            </div>
+            <button class="forgot-btn" onclick="resetPassword()">Forgot password?</button>
+            <div id="login-error" class="error-text"></div>
+            <button class="btn primary" onclick="handleLogin()" id="login-btn"><span><i class="fas fa-arrow-right" style="margin-right:10px"></i> Sign In</span></button>
           </div>
-          <button class="forgot-btn" onclick="resetPassword()">Forgot password?</button>
-          <div id="login-error" class="error-text"></div>
-          <button class="btn primary" onclick="handleLogin()" id="login-btn">
-            <span>Sign In</span>
+
+          <div id="auth-signup" class="auth-form">
+            <div class="input-group">
+              <input type="text" id="signup-name" placeholder="Full name" autocomplete="name">
+              <i class="fas fa-user input-icon"></i>
+            </div>
+            <div class="input-group">
+              <input type="email" id="signup-email" placeholder="Email address" autocomplete="email">
+              <i class="fas fa-envelope input-icon"></i>
+            </div>
+            <div class="input-group">
+              <input type="password" id="signup-password" placeholder="Password" autocomplete="new-password">
+              <i class="fas fa-lock input-icon"></i>
+              <button class="eye-btn" onclick="togglePassword('signup-password', this)" aria-label="Show or hide password"><i class="fas fa-eye"></i></button>
+            </div>
+            <div class="input-group">
+              <input type="password" id="signup-confirm" placeholder="Confirm password" autocomplete="new-password">
+              <i class="fas fa-lock input-icon"></i>
+            </div>
+            <div id="signup-error" class="error-text"></div>
+            <button class="btn primary" onclick="handleSignup()" id="signup-btn"><span>Create Account</span></button>
+          </div>
+
+          <div class="divider"><span>OR</span></div>
+          <button class="btn google-btn" onclick="handleGoogleSignIn()">
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" class="google-logo">
+            Continue with Google
           </button>
+          <p class="login-help">Don't have an account? <span>Contact your property manager</span></p>
         </div>
-
-        <div id="auth-signup" class="auth-form">
-          <div class="input-group">
-            <input type="text" id="signup-name" placeholder="Full name" autocomplete="name">
-            <i class="fas fa-user input-icon"></i>
-          </div>
-          <div class="input-group">
-            <input type="email" id="signup-email" placeholder="Email address" autocomplete="email">
-            <i class="fas fa-envelope input-icon"></i>
-          </div>
-          <div class="input-group">
-            <input type="password" id="signup-password" placeholder="Password" autocomplete="new-password">
-            <i class="fas fa-lock input-icon"></i>
-            <button class="eye-btn" onclick="togglePassword('signup-password', this)">
-              <i class="fas fa-eye"></i>
-            </button>
-          </div>
-          <div class="input-group">
-            <input type="password" id="signup-confirm" placeholder="Confirm password" autocomplete="new-password">
-            <i class="fas fa-lock input-icon"></i>
-          </div>
-          <div id="signup-error" class="error-text"></div>
-          <button class="btn primary" onclick="handleSignup()" id="signup-btn">
-            <span>Create Account</span>
-          </button>
-        </div>
-
-        <div class="divider"><span>OR</span></div>
-
-        <button class="btn google-btn" onclick="handleGoogleSignIn()">
-          <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" class="google-logo">
-          Continue with Google
-        </button>
-      </div>
+      </section>
     </div>
   </div>
 
@@ -130,6 +490,26 @@
         </div>
       </div>
 
+      <!-- AUTOPAY CARD -->
+      <div class="card" id="autopay-card">
+        <div class="rent-header">
+          <div class="rent-status-dot" id="autopay-dot" style="background:#64748B;"></div>
+          <span class="rent-status-text" id="autopay-text" style="color:#64748B;">Checking autopay…</span>
+        </div>
+        <p class="rent-label" id="autopay-sub" style="margin:8px 0 12px;">Pay rent automatically every month.</p>
+        <button class="btn primary pay-btn" id="autopay-btn" onclick="setupAutopay()" style="display:none;">
+          <i class="fas fa-sync-alt"></i>
+          <span>Set up autopay</span>
+        </button>
+        <button class="btn secondary" id="autopay-cards-btn" style="display:none;margin-top:10px;" onclick="showPage('billing')">
+          <i class="fas fa-credit-card"></i>
+          <span>Change card</span>
+        </button>
+        <button class="btn secondary" id="autopay-cancel-btn" style="display:none;margin-top:10px;" onclick="cancelAutopay(false)">
+          <span>Cancel autopay</span>
+        </button>
+      </div>
+
       <!-- NO TENANT CARD -->
       <div class="card no-tenant-card" id="no-tenant-card" style="display:none;">
         <i class="fas fa-exclamation-circle"></i>
@@ -137,25 +517,17 @@
         <p>Contact your landlord or property manager to get assigned to a property</p>
       </div>
 
-      <!-- ACCOUNT LINKING CARD -->
+      <!-- ACCOUNT LINKING REMOVED: invite-only, landlord adds email in Tenant Assignment -->
       <div class="card" id="link-card" style="display:none;">
         <div style="text-align:center;margin-bottom:16px;">
           <div style="width:56px;height:56px;border-radius:16px;background:rgba(59,130,246,0.12);display:flex;align-items:center;justify-content:center;margin:0 auto;">
-            <i class="fas fa-link" style="font-size:24px;color:var(--accent);"></i>
+            <i class="fas fa-envelope" style="font-size:24px;color:var(--accent);"></i>
           </div>
         </div>
-        <h3 style="text-align:center;margin-bottom:6px;">Link Your Account</h3>
+        <h3 style="text-align:center;margin-bottom:6px;">No Access</h3>
         <p style="color:var(--text-secondary);text-align:center;font-size:14px;margin-bottom:20px;">
-          Enter your name exactly as your landlord or property manager entered it
+          Ask your landlord to add your email in Tenant Assignment, then sign in again.
         </p>
-        <div class="input-group">
-          <input type="text" id="link-name" placeholder="e.g. John Doe">
-          <i class="fas fa-user input-icon"></i>
-        </div>
-        <div id="link-error" class="error-text"></div>
-        <button class="btn primary" onclick="linkTenantAccount()" id="link-btn">
-          <span>Link Account</span>
-        </button>
         <button class="btn secondary" style="margin-top:10px;" onclick="handleLogout()">Sign Out</button>
       </div>
 
@@ -185,6 +557,18 @@
           </div>
           <span>Payment History</span>
         </button>
+        <button class="quick-action-btn" onclick="showPage('utilities')">
+          <div class="quick-icon blue">
+            <i class="fas fa-bolt"></i>
+          </div>
+          <span>Utilities</span>
+        </button>
+        <button class="quick-action-btn" onclick="showPage('billing')">
+          <div class="quick-icon purple">
+            <i class="fas fa-credit-card"></i>
+          </div>
+          <span>Billing</span>
+        </button>
       </div>
 
       <!-- RECENT PAYMENTS -->
@@ -201,6 +585,15 @@
         <button class="link-btn" onclick="showPage('maintenance')">View all</button>
       </div>
       <div class="card list-card" id="requests-list">
+        <p class="empty-text">Loading...</p>
+      </div>
+
+      <!-- UTILITIES PREVIEW -->
+      <div class="section-header" id="utilities-header" style="margin-top: 4px;">
+        <h2>Utilities</h2>
+        <button class="link-btn" onclick="showPage('utilities')">Manage</button>
+      </div>
+      <div class="card list-card" id="utilities-list">
         <p class="empty-text">Loading...</p>
       </div>
 
@@ -254,6 +647,117 @@
 
       <div id="all-payments-list">
         <p class="empty-text">Loading...</p>
+      </div>
+
+      <div style="height: 20px;"></div>
+    </div>
+  </div>
+
+  <!-- UTILITIES PAGE -->
+  <div id="page-utilities" class="page">
+    <nav class="topbar">
+      <button class="btn-icon" onclick="showPage('dashboard')">
+        <i class="fas fa-arrow-left"></i>
+      </button>
+      <span class="topbar-title">Utilities</span>
+      <div style="width:40px;"></div>
+    </nav>
+
+    <div class="container">
+      <button class="btn secondary full-width" onclick="openAutosyncScreen()" style="margin-top: 4px;">
+        <i class="fas fa-bolt"></i>
+        <span>Auto-sync bills · $20/mo per meter</span>
+      </button>
+
+      <div id="all-utilities-list">
+        <p class="empty-text">Loading...</p>
+      </div>
+
+      <div style="height: 20px;"></div>
+    </div>
+  </div>
+
+  <!-- AUTO-SYNC SETUP SCREEN -->
+  <div id="page-autosync" class="page">
+    <nav class="topbar">
+      <button class="btn-icon" onclick="closeAutosyncScreen()">
+        <i class="fas fa-arrow-left"></i>
+      </button>
+      <span class="topbar-title">Auto-sync bills</span>
+      <div style="width:40px;"></div>
+    </nav>
+
+    <div class="container">
+      <div id="autosync-steps" style="display:flex;gap:6px;margin-top:4px;margin-bottom:14px;"></div>
+      <div id="autosync-screen-body">
+        <p class="empty-text">Loading...</p>
+      </div>
+
+      <div style="height: 20px;"></div>
+    </div>
+  </div>
+
+  <!-- BILLING PAGE (tenant's own subscriptions — never the landlord's) -->
+  <div id="page-billing" class="page">
+    <nav class="topbar">
+      <button class="btn-icon" onclick="showPage('dashboard')">
+        <i class="fas fa-arrow-left"></i>
+      </button>
+      <span class="topbar-title">Billing</span>
+      <div style="width:40px;"></div>
+    </nav>
+
+    <div class="container">
+      <div class="section-header" style="margin-top: 4px;">
+        <h2>Rent Autopay Card</h2>
+      </div>
+      <p style="color:#64748B;font-size:12.5px;margin:-6px 0 10px;">Charged automatically for monthly rent.</p>
+      <div id="billing-autopay-cards">
+        <p class="empty-text">Loading...</p>
+      </div>
+
+      <div class="section-header" style="margin-top: 18px;">
+        <h2>My Subscriptions</h2>
+      </div>
+      <div id="billing-subs">
+        <p class="empty-text">Loading...</p>
+      </div>
+
+      <div class="section-header" style="margin-top: 18px;">
+        <h2>Payment Methods</h2>
+      </div>
+      <p style="color:#64748B;font-size:12.5px;margin:-6px 0 10px;">Charged for utility auto-sync subscriptions.</p>
+      <div id="billing-cards">
+        <p class="empty-text">Loading...</p>
+      </div>
+
+      <div class="section-header" style="margin-top: 18px;">
+        <h2>Invoices</h2>
+      </div>
+      <div id="billing-invoices">
+        <p class="empty-text">Loading...</p>
+      </div>
+
+      <div class="section-header" style="margin-top: 18px;">
+        <h2>Billing Profile</h2>
+      </div>
+      <div class="card" style="padding:16px;">
+        <div class="input-group">
+          <label>Name</label>
+          <input type="text" id="bill-name" placeholder="Full name" autocomplete="name">
+        </div>
+        <div class="input-group">
+          <label>Email</label>
+          <input type="email" id="bill-email" placeholder="Email address" autocomplete="email">
+        </div>
+        <div class="input-group">
+          <label>Phone</label>
+          <input type="text" id="bill-phone" placeholder="Phone" autocomplete="tel">
+        </div>
+        <div id="bill-profile-error" class="error-text"></div>
+        <button class="btn primary" onclick="saveBillingProfile()" id="bill-profile-btn">
+          <i class="fas fa-save"></i><span>Save Profile</span>
+        </button>
       </div>
 
       <div style="height: 20px;"></div>
@@ -315,6 +819,84 @@
     </div>
   </div>
 
+  <!-- UTILITY MODAL (same fields as the app) -->
+  <div id="utility-modal" class="modal-overlay" onclick="closeUtilityModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <h2 class="modal-title" id="utility-modal-title">Add Utility</h2>
+      <div class="property-badge" id="modal-util-property">
+        <i class="fas fa-home"></i>
+        <span>--</span>
+      </div>
+      <div class="input-group">
+        <label>Utility Type *</label>
+        <select id="util-type">
+          <option value="Electric">Electric</option>
+          <option value="Water">Water</option>
+          <option value="Gas">Gas</option>
+          <option value="Oil">Oil</option>
+          <option value="Sewer">Sewer</option>
+          <option value="Trash">Trash</option>
+        </select>
+      </div>
+      <div class="input-group">
+        <label>Provider</label>
+        <input type="text" id="util-provider" placeholder="e.g. Con Edison">
+      </div>
+      <div class="input-group">
+        <label>Monthly Amount (USD) *</label>
+        <input type="number" id="util-amount" placeholder="e.g. 120" min="0" step="0.01">
+      </div>
+      <div class="input-group">
+        <label>Due Day *</label>
+        <select id="util-due-day">
+          <option value="1">1st of month</option>
+          <option value="5">5th of month</option>
+          <option value="10">10th of month</option>
+          <option value="15" selected>15th of month</option>
+          <option value="20">20th of month</option>
+          <option value="25">25th of month</option>
+          <option value="last">Last day of month</option>
+        </select>
+      </div>
+      <div class="input-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="util-notify" checked style="width:auto;">
+          Due-date reminders
+        </label>
+      </div>
+      <div id="util-error" class="error-text"></div>
+      <button class="btn primary" onclick="saveUtility()" id="save-util-btn">
+        <i class="fas fa-check"></i>
+        <span>Save Utility</span>
+      </button>
+      <button class="btn danger" id="delete-util-btn" style="margin-top: 10px;display:none;" onclick="deleteUtility()">
+        <i class="fas fa-trash"></i>
+        <span>Remove</span>
+      </button>
+      <button class="btn secondary" style="margin-top: 10px;" onclick="closeUtilityModal()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- AUTO-SYNC MODAL (tenant pays $20/mo on their own card) -->
+  <div id="autosync-modal" class="modal-overlay" onclick="closeAutosyncModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <h2 class="modal-title" id="autosync-title">Auto-sync</h2>
+      <div id="autosync-body">
+        <p class="empty-text">Loading...</p>
+      </div>
+      <button class="btn secondary" style="margin-top: 10px;" onclick="closeAutosyncModal()">Close</button>
+    </div>
+  </div>
+
+  <!-- INVOICE VIEWER (in-website receipt, same details as the app) -->
+  <div id="invoice-modal" class="modal-overlay" onclick="closeInvoiceModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <h2 class="modal-title">Receipt</h2>
+      <div id="invoice-body"></div>
+      <button class="btn secondary" style="margin-top: 14px;" onclick="closeInvoiceModal()">Done</button>
+    </div>
+  </div>
+
   <!-- TOAST NOTIFICATION -->
   <div id="toast" class="toast"></div>
 
@@ -328,5 +910,33 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
   <script src="app.js"></script>
+
+  <script id="estateflow-auth-heading-fix">
+    // Update the greeting when switching between the existing login/signup flows.
+    (function () {
+      const welcome = document.querySelector('#page-login .hero-text');
+      if (!welcome) return;
+      const loginCopy = 'Welcome back. Sign in to access your tenant portal.';
+      const signupCopy = 'Create your tenant account to get started.';
+      function updateAuthCopy(mode) {
+        welcome.textContent = mode === 'signup' ? signupCopy : loginCopy;
+      }
+      const existingSwitchAuthTab = window.switchAuthTab;
+      if (typeof existingSwitchAuthTab === 'function') {
+        window.switchAuthTab = function (mode) {
+          const result = existingSwitchAuthTab.apply(this, arguments);
+          updateAuthCopy(mode);
+          return result;
+        };
+      }
+      document.querySelectorAll('#page-login .tab').forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          updateAuthCopy(tab.textContent.trim().toLowerCase().includes('sign up') ? 'signup' : 'login');
+        });
+      });
+      updateAuthCopy('login');
+    })();
+  </script>
+
 </body>
 </html>

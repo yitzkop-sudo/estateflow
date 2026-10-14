@@ -17,6 +17,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ScreenHeader } from "../components/screen-header";
 import { CheckoutSheet, isCheckoutSheetAvailable, type CheckoutRequest } from "../components/checkout-sheet";
 import { auth } from "../lib/firebase";
 import { openExternalUrl } from "../lib/openExternal";
@@ -84,6 +85,8 @@ export default function Subscriptions() {
   >(null);
   const [selectedInvoice, setSelectedInvoice] = useState<BillingInvoice | null>(null);
   const [showAllInvoices, setShowAllInvoices] = useState(false);
+  const [invoiceQuery, setInvoiceQuery] = useState("");
+  const [invoiceSearchOpen, setInvoiceSearchOpen] = useState(false);
 
   const hasBillingAccount = cards !== null || profile !== null || invoices !== null;
 
@@ -101,7 +104,7 @@ export default function Subscriptions() {
           if (!isNoAccount(e)) throw e;
           return null;
         }),
-        getBillingInvoices(10).catch((e) => {
+        getBillingInvoices(25).catch((e) => {
           if (!isNoAccount(e)) throw e;
           return null;
         }),
@@ -355,7 +358,29 @@ export default function Subscriptions() {
   );
 
   // Invoice history: show 5 by default with a view-all toggle.
-  const allInvoices = invoices || [];
+  // Search matches description, number, status, amount and dates
+  // (locale, ISO and M/D/YYYY forms).
+  const invoiceMatchesQuery = (inv: BillingInvoice, q: string) => {
+    const query = q.trim().toLowerCase();
+    if (!query) return true;
+    const raw = inv.created ? new Date(inv.created) : null;
+    const d = raw && !isNaN(raw.getTime()) ? raw : null;
+    const hay = [
+      inv.description || "",
+      inv.number || "",
+      inv.status || "",
+      d ? d.toLocaleDateString() : "",
+      d ? d.toISOString().slice(0, 10) : "",
+      d ? `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}` : "",
+      inv.amountPaid ? (inv.amountPaid / 100).toFixed(2) : "",
+    ]
+      .join(" ")
+      .toLowerCase();
+    return query
+      .split(/\s+/)
+      .every((w) => w && hay.includes(w));
+  };
+  const allInvoices = (invoices || []).filter((inv) => invoiceMatchesQuery(inv, invoiceQuery));
   const visibleInvoices = showAllInvoices ? allInvoices : allInvoices.slice(0, 5);
   const hiddenInvoiceCount = allInvoices.length - visibleInvoices.length;
 
@@ -467,6 +492,8 @@ export default function Subscriptions() {
     const periodEnd = subStatus?.subscriptions?.[key]?.currentPeriodEnd;
     const cancelAtEnd = !!subStatus?.subscriptions?.[key]?.cancelAtPeriodEnd;
     const cancelling = cancellingKey === key;
+    const billedMeters = subStatus?.subscriptions?.[key]?.billedMeters ?? 0;
+    const meterBill = billedMeters > 1 ? ` · $20 × ${billedMeters} meters` : "";
     return (
       <View key={key} style={styles.cardSection}>
         <View style={styles.utilityRow}>
@@ -479,8 +506,8 @@ export default function Subscriptions() {
               {!isCovered
                 ? "Not subscribed"
                 : cancelAtEnd
-                  ? `Cancels ${periodEnd ? new Date(periodEnd).toLocaleDateString() : "soon"} · $20/mo until then`
-                  : "Active · $20/mo"}
+                  ? `Cancels ${periodEnd ? new Date(periodEnd).toLocaleDateString() : "soon"} · $20/mo until then${meterBill}`
+                  : `Active · $20/mo${meterBill}`}
               {isCovered && !cancelAtEnd && periodEnd
                 ? ` · renews ${new Date(periodEnd).toLocaleDateString()}`
                 : ""}
@@ -541,18 +568,10 @@ export default function Subscriptions() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(false); }} tintColor="#3B82F6" />}
       >
-        <View style={styles.headerContainer}>
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <TouchableOpacity
-              onPress={() => (router.canGoBack() ? router.back() : router.replace("/dashboard"))}
-              style={styles.backBtn}
-            >
-              <Feather name="arrow-left" size={SCREEN_WIDTH < 400 ? 20 : 24} color="white" />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Subscriptions</Text>
-          </View>
-          <Text style={styles.headerSubtitle}>Your active utility subscriptions — manage each below.</Text>
-        </View>
+        <ScreenHeader
+          title="Subscriptions"
+          subtitle="Utility auto-sync billing"
+        />
 
         {error ? (
           <TouchableOpacity style={styles.errorBanner} onPress={() => setError(null)}>
@@ -820,7 +839,24 @@ export default function Subscriptions() {
 
             {/* ── Invoice history ── */}
             <View style={styles.cardSection}>
-              <Text style={styles.sectionTitle}>Invoice history</Text>
+              <View style={styles.invHistoryHeader}>
+                <Text style={styles.sectionTitle}>Invoice history</Text>
+                {(invoices || []).length > 0 && (
+                  <TouchableOpacity
+                    style={styles.invSearchToggle}
+                    onPress={() => {
+                      if (invoiceSearchOpen) {
+                        setInvoiceQuery("");
+                        setShowAllInvoices(false);
+                      }
+                      setInvoiceSearchOpen(!invoiceSearchOpen);
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Feather name={invoiceSearchOpen ? "x" : "search"} size={18} color="#94A3B8" />
+                  </TouchableOpacity>
+                )}
+              </View>
               {billingLoading ? (
                 <ActivityIndicator size="small" color="#3B82F6" style={{ marginTop: 8 }} />
               ) : !hasBillingAccount ? (
@@ -829,6 +865,31 @@ export default function Subscriptions() {
                 <Text style={styles.finePrintLeft}>No invoices yet.</Text>
               ) : (
                 <>
+                  {invoiceSearchOpen && (
+                    <View style={styles.invSearchRow}>
+                      <Feather name="search" size={16} color="#64748B" />
+                      <TextInput
+                        style={styles.invSearchInput}
+                        placeholder="Search by date, amount, status…"
+                        placeholderTextColor="#64748B"
+                        value={invoiceQuery}
+                        onChangeText={(t) => {
+                          setInvoiceQuery(t);
+                          setShowAllInvoices(false);
+                        }}
+                        autoCorrect={false}
+                      />
+                      {invoiceQuery.length > 0 && (
+                        <TouchableOpacity onPress={() => setInvoiceQuery("")} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <Feather name="x" size={16} color="#64748B" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
+                  {allInvoices.length === 0 ? (
+                    <Text style={styles.finePrintLeft}>No invoices match your search.</Text>
+                  ) : (
+                    <>
                   {visibleInvoices.map((inv) => {
                   const paid = inv.status === "paid";
                   const open = inv.status === "open" || inv.status === "draft";
@@ -874,6 +935,8 @@ export default function Subscriptions() {
                       <Text style={styles.invViewAllText}>Show less</Text>
                       <Feather name="chevron-up" size={14} color="#60A5FA" />
                     </TouchableOpacity>
+                  )}
+                    </>
                   )}
                 </>
               )}
@@ -1050,6 +1113,10 @@ const styles = StyleSheet.create({
   invoiceTitle: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
   invoiceSub: { color: "#64748B", fontSize: 11, fontWeight: "600", marginTop: 2 },
   invoiceAmount: { color: "#FFFFFF", fontSize: 14, fontWeight: "900" },
+  invSearchRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "rgba(30,41,59,0.7)", borderRadius: 14, borderWidth: 1, borderColor: "rgba(59,130,246,0.12)", paddingHorizontal: 12, paddingVertical: 10, marginTop: 10 },
+  invSearchInput: { flex: 1, color: "#fff", fontSize: 14, fontWeight: "600", paddingVertical: 2 },
+  invHistoryHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  invSearchToggle: { width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.06)", justifyContent: "center", alignItems: "center" },
   invPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginTop: 4, borderWidth: 1, alignSelf: "flex-end" },
   invPaid: { backgroundColor: "rgba(16,185,129,0.15)", borderColor: "rgba(16,185,129,0.4)" },
   invOpen: { backgroundColor: "rgba(251,191,36,0.12)", borderColor: "rgba(251,191,36,0.4)" },

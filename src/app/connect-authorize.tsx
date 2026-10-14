@@ -14,13 +14,17 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ScreenHeader } from "../components/screen-header";
 import { CheckoutSheet, isCheckoutSheetAvailable, type CheckoutRequest } from "../components/checkout-sheet";
 import { auth } from "../lib/firebase";
 import { openExternalUrl } from "../lib/openExternal";
 import { setPendingUtilityLink } from "../lib/pendingUtilityLink";
 import {
+  createArcadiaConnect,
+  getArcadiaStatus,
   getAuthFormStatus,
   getUtilitySubscriptionStatus,
+  linkArcadiaToProperty,
   linkUtilityToProperty,
   openAuthForm,
   type UtilitySubStatus,
@@ -41,6 +45,8 @@ export default function ConnectAuthorize() {
   const utilityKey = typeof params.utilityKey === "string" ? params.utilityKey : "Electric";
   const providerUid = typeof params.providerUid === "string" ? params.providerUid : null;
   const providerName = typeof params.providerName === "string" ? params.providerName : null;
+  // NJ engine: Arcadia Plug (higher NJ price) vs default UtilityAPI ($20/mo).
+  const isArcadia = params.engine === "arcadia";
 
   const [subStatus, setSubStatus] = useState<UtilitySubStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -84,12 +90,12 @@ export default function ConnectAuthorize() {
     useCallback(() => {
       const uid = formUidRef.current;
       if (!uid || linkingRef.current) return;
-      getAuthFormStatus(uid)
+      (isArcadia ? getArcadiaStatus(uid) : getAuthFormStatus(uid))
         .then((st) => {
           if (st?.completed) runFinishLinking(uid);
         })
         .catch(() => {});
-    }, [authPending]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [authPending, isArcadia]) // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const runFinishLinking = useCallback(
@@ -99,7 +105,9 @@ export default function ConnectAuthorize() {
       setConnecting(true);
       setStatusMsg("Pulling your latest bill from the provider...");
       try {
-      const data = await linkUtilityToProperty(uid, utilityKey);
+      const data = isArcadia
+        ? await linkArcadiaToProperty(uid, utilityKey)
+        : await linkUtilityToProperty(uid, utilityKey);
       stopPoll();
       // Hand the bill to the property form two ways (store + route params)
       // so it lands no matter the navigation timing, then go straight back
@@ -133,7 +141,7 @@ export default function ConnectAuthorize() {
         linkingRef.current = false;
       }
     },
-    [router, stopPoll, utilityKey]
+    [router, stopPoll, utilityKey, isArcadia]
   );
 
   const startAuthPoll = useCallback(
@@ -144,7 +152,7 @@ export default function ConnectAuthorize() {
       pollRef.current = setInterval(async () => {
         tries += 1;
         try {
-          const st = await getAuthFormStatus(uid);
+          const st = isArcadia ? await getArcadiaStatus(uid) : await getAuthFormStatus(uid);
           if (st?.completed) {
             // Cap automatic link attempts so a permanently-failing link
             // can't retry forever — the manual button below always works.
@@ -164,7 +172,7 @@ export default function ConnectAuthorize() {
         if (tries >= 60) stopPoll();
       }, 5000);
     },
-    [runFinishLinking, stopPoll]
+    [runFinishLinking, stopPoll, isArcadia]
   );
 
   const keySubs = subStatus?.subscriptions;
@@ -189,16 +197,27 @@ export default function ConnectAuthorize() {
     );
     let waitingForSignIn = false;
     try {
-      const form = await openAuthForm(providerUid || undefined, utilityKey);
-      formUidRef.current = form.formUid;
+      // NJ (Arcadia) handoff: correlationId + Connect URL. UtilityAPI:
+      // auth form as before. Downstream open/poll/finish is shared.
+      let targetUrl: string;
+      if (isArcadia) {
+        if (!providerUid) throw new Error("Missing NJ provider. Go back and pick PSE&G, JCP&L, or another NJ utility.");
+        const conn = await createArcadiaConnect(providerUid, utilityKey);
+        formUidRef.current = conn.correlationId;
+        targetUrl = conn.url;
+      } else {
+        const form = await openAuthForm(providerUid || undefined, utilityKey);
+        formUidRef.current = form.formUid;
+        targetUrl = form.url;
+      }
       if (Platform.OS !== "web" && isCheckoutSheetAvailable()) {
         // In-app provider sign-in: the screen's poll watches for completion
         // and finishes linking by itself — no separate tab needed.
         setSheet({
           req: {
-            url: form.url,
+            url: targetUrl,
             title: providerName ? `Sign in to ${providerName}` : `Connect ${utilityKey}`,
-            subtitle: "Sign in with your provider · stays in the app",
+            subtitle: isArcadia ? "Sign in with your NJ utility · stays in the app" : "Sign in with your provider · stays in the app",
             loadingText: "Loading provider sign-in…",
             secureNote: null,
             successMarkers: [],
@@ -212,7 +231,7 @@ export default function ConnectAuthorize() {
         startAuthPoll(formUidRef.current);
         return;
       }
-      const opened = await openExternalUrl(async () => form.url);
+      const opened = await openExternalUrl(async () => targetUrl);
       if (!opened) {
         setError("The provider tab was blocked. Allow popups for this site and try again.");
         return;
@@ -282,15 +301,10 @@ export default function ConnectAuthorize() {
       <Image source={require("../assets/login-bg.png")} style={styles.backgroundImage} resizeMode="cover" />
       <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(5,10,20,0.78)" }]} />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.headerContainer}>
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-              <Feather name="arrow-left" size={SCREEN_WIDTH < 400 ? 20 : 24} color="white" />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Authorize</Text>
-          </View>
-          <Text style={styles.headerSubtitle}>Sign in, then you're done.</Text>
-        </View>
+        <ScreenHeader
+          title="Authorize"
+          subtitle="Sign in, then you're done."
+        />
 
         {error ? (
           <TouchableOpacity style={styles.errorBanner} onPress={() => setError(null)}>
@@ -309,7 +323,7 @@ export default function ConnectAuthorize() {
               <Text style={styles.summaryLabel}>Connecting</Text>
               <Text style={styles.summaryValue} numberOfLines={1}>
                 {utilityKey}
-                {providerName ? ` · ${providerName}` : ""} · $20/mo
+                {providerName ? ` · ${providerName}` : ""} · {isArcadia ? "NJ auto-sync" : "$20/mo"}
               </Text>
             </View>
             {!keyCovered ? (

@@ -119,7 +119,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Utility auto-sync (paid)",
     keywords: ["auto-sync", "autosync", "utilityapi", "auto sync", "connect utility", "link meter", "subscription $20"],
     answer:
-      "Utility auto-sync pulls your bills automatically through a secure provider connection: menu → Subscriptions → subscribe to a utility ($20/month per utility key) → Connect Utility → pick your provider and sign in → Finish linking. Each utility (Electric, Water…) needs its own subscription. Refresh a meter anytime from the property or Connect screen.",
+      "Utility auto-sync pulls your bills automatically through a secure provider connection: menu → Subscriptions → subscribe to a utility ($20/month per utility key; NJ meters bill a higher NJ price that stays above cost so every meter profits) → Connect Utility → pick your provider and sign in → Finish linking. Each utility (Electric, Water…) needs its own subscription. Refresh a meter anytime from the property or Connect screen. NJ/NY: filter the picker by New Jersey or New York. NJ (PSE&G, JCP&L, Atlantic City Electric, Rockland Electric, NJ gas) auto-syncs via Arcadia with monthly statements + automatic bill updates. National Grid (NY) auto-syncs via UtilityAPI ($20/mo); Con Edison, PSEG-LI, O&R, NYSEG, RG&E, Central Hudson and National Fuel share via the free NY Green Button hub (NYSERDA IEDR), then enter the bill manually (no charge for Green Button providers).",
     route: "/subscriptions",
   },
   {

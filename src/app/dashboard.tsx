@@ -31,10 +31,11 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { computeNextDueDate } from "../lib/date";
+import { utilitiesTotal } from "../lib/utilities";
 import { LinearGradient as ExpoLinearGradient } from "expo-linear-gradient";
 import Svg, { Circle, Defs, LinearGradient, Path, Stop } from "react-native-svg";
 import { auth, db } from "../lib/firebase";
-import { scheduleRentReminders, scheduleUtilityReminders } from "../lib/notifications";
+import { scheduleMaintenanceReminders, scheduleRentReminders, scheduleUtilityReminders } from "../lib/notifications";
 import { exportFullReport } from "../lib/export";
 
 /** Drawer width that adapts to rotation / window resize (replaces static Dimensions snapshot). */
@@ -80,12 +81,14 @@ type MonthSnap = {
 
 // Unified item shown in the notification bell/dropdown
 type DueItem = {
-  kind: "utility" | "rent";
+  kind: "utility" | "rent" | "maintenance";
   propertyName: string;
-  subName: string; // tenant name (rent) or utility name (utility)
+  subName: string; // tenant name (rent), utility name (utility), task title (maintenance)
   amount: number;
   dueDate: Date;
   overdue: boolean;
+  propertyId?: string; // utility bills route to this property's breakdown
+  maintenanceId?: string; // maintenance tasks route to the maintenance screen
 };
 
 // Unified item shown in "Recent Activity"
@@ -292,7 +295,7 @@ export default function Dashboard() {
   const [monthSnaps, setMonthSnaps] = useState<Record<string, MonthSnap>>({});
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [rawPayments, setRawPayments] = useState<{ tenantName: string; propertyName: string; rentAmount: number; paidAt: any }[]>([]);
-  const [rawMaintenance, setRawMaintenance] = useState<{ title: string; propertyName: string; cost: number; date: any; notes?: string }[]>([]);
+  const [rawMaintenance, setRawMaintenance] = useState<{ id: string; title: string; propertyName: string; cost: number; date: any; notes?: string; status?: string }[]>([]);
 
   const { width: winWidth } = useWindowDimensions();
   const DRAWER_WIDTH = drawerWidthFor(winWidth);
@@ -406,7 +409,7 @@ export default function Dashboard() {
 
       // Maintenance records
       const mSnap = await getDocs(query(collection(db, "maintenance"), where("ownerId", "==", user.uid)));
-      const allMaint: { title: string; propertyName: string; cost: number; date: any; notes?: string }[] = [];
+      const allMaint: { id: string; title: string; propertyName: string; cost: number; date: any; notes?: string; status?: string }[] = [];
       mSnap.docs.forEach((d) => {
         const m = d.data();
         const ts = m.date?.toDate
@@ -416,7 +419,7 @@ export default function Dashboard() {
             : m.createdAt?.toDate
               ? m.createdAt.toDate()
               : new Date();
-        allMaint.push({ title: m.title || "", propertyName: m.propertyName || "", cost: m.cost || 0, date: m.date, notes: m.notes });
+        allMaint.push({ id: d.id, title: m.title || "", propertyName: m.propertyName || "", cost: m.cost || 0, date: m.date, notes: m.notes, status: m.status });
         activityItems.push({
           id: `maint-${d.id}`,
           label: "Maintenance",
@@ -455,10 +458,7 @@ export default function Dashboard() {
       setRawMaintenance(allMaint);
 
       // 4. Save today's snapshot (overwrites same month — idempotent)
-      const totalCost = props.reduce((t, p) => {
-        if (!p.utilities) return t;
-        return t + Object.values(p.utilities).reduce((s, u) => s + (parseFloat(u.amount) || 0), 0);
-      }, 0);
+      const totalCost = props.reduce((t, p) => t + utilitiesTotal(p.utilities), 0);
       const monthlyIncome =
         tenantList.reduce((t, tn) => t + (tn.rentAmount || 0), 0) ||
         props.reduce((t, p) => t + (p.monthlyIncome || 0), 0);
@@ -483,6 +483,25 @@ export default function Dashboard() {
       // 6. Schedule rent due reminders (incl. overdue rent) from tenant records
       const rent = await scheduleRentReminders(tenantList);
 
+      // 6b. Maintenance reminders — tenant portal requests ONLY (landlord
+      // manual tasks never notify). Requests live in maintenance_requests.
+      const reqSnap = await getDocs(
+        query(collection(db, "maintenance_requests"), where("ownerId", "==", user.uid))
+      ).catch(() => null);
+      const tenantRequests = (reqSnap?.docs || []).map((d) => {
+        const m = d.data();
+        return {
+          id: d.id,
+          title: m.title || "",
+          propertyName: m.propertyName || "",
+          cost: m.cost || 0,
+          date: m.date,
+          status: m.status,
+          createdAt: m.createdAt,
+        };
+      });
+      const maint = await scheduleMaintenanceReminders(tenantRequests);
+
       const dues: DueItem[] = [
         ...rent.upcoming.map((r) => ({
           kind: "rent" as const,
@@ -499,10 +518,20 @@ export default function Dashboard() {
           amount: Number(u.amount) || 0,
           dueDate: u.dueDate,
           overdue: false,
+          propertyId: u.propertyId,
+        })),
+        ...maint.upcoming.map((m) => ({
+          kind: "maintenance" as const,
+          propertyName: m.propertyName,
+          subName: m.title,
+          amount: m.cost || 0,
+          dueDate: m.dueDate,
+          overdue: m.overdue,
+          maintenanceId: m.id,
         })),
       ];
       setUpcomingDues(dues);
-      const dueCount = rent.count + util.count;
+      const dueCount = rent.count + util.count + maint.count;
       setNotifCount(dueCount);
       setNotifRead(dueCount <= lastReadCount.current);
 
@@ -521,21 +550,13 @@ export default function Dashboard() {
   const firstName = userName?.split(" ")[0] || auth.currentUser?.email?.split("@")[0] || "Owner";
 
   // ── Current-month real numbers ──────────────────────────────────────────────
-  const totalMonthlyCost = () => {
-    let t = 0;
-    properties.forEach(p => p.utilities && Object.values(p.utilities).forEach(u => { t += parseFloat(u.amount) || 0; }));
-    return t;
-  };
+  const totalMonthlyCost = () => properties.reduce((t, p) => t + utilitiesTotal(p.utilities), 0);
   const totalUtilityCount = () => {
     let c = 0;
     properties.forEach(p => p.utilities && (c += Object.keys(p.utilities).length));
     return c;
   };
-  const propMonthlyCost = (p: Property) => {
-    let t = 0;
-    if (p.utilities) Object.values(p.utilities).forEach(u => { t += parseFloat(u.amount) || 0; });
-    return t;
-  };
+  const propMonthlyCost = (p: Property) => utilitiesTotal(p.utilities);
   const totalPortfolioValue = () => properties.reduce((t, p) => t + (p.value || 0), 0);
   const totalMonthlyIncome = () => properties.reduce((t, p) => t + (p.monthlyIncome || 0), 0);
 
@@ -994,18 +1015,44 @@ export default function Dashboard() {
                       ? "#EF4444"
                       : item.kind === "rent"
                         ? "#FACC15"
-                        : "#94A3B8";
-                    const iconColor = item.overdue ? "#EF4444" : item.kind === "rent" ? "#FACC15" : "#3B82F6";
+                        : item.kind === "maintenance"
+                          ? "#F59E0B"
+                          : "#94A3B8";
+                    const iconColor = item.overdue
+                      ? "#EF4444"
+                      : item.kind === "rent"
+                        ? "#FACC15"
+                        : item.kind === "maintenance"
+                          ? "#F59E0B"
+                          : "#3B82F6";
                     const iconBg = item.overdue
                       ? "rgba(239,68,68,0.15)"
                       : item.kind === "rent"
                         ? "rgba(250,204,21,0.12)"
-                        : "rgba(59,130,246,0.12)";
+                        : item.kind === "maintenance"
+                          ? "rgba(245,158,11,0.12)"
+                          : "rgba(59,130,246,0.12)";
                     return (
-                      <View key={i} style={s.duesItem}>
+                      <TouchableOpacity
+                        key={i}
+                        style={s.duesItem}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          setDuesModalOpen(false);
+                          if (item.kind === "rent") {
+                            router.push("/tenants");
+                          } else if (item.kind === "maintenance") {
+                            router.push("/maintenance");
+                          } else if (item.propertyId) {
+                            router.push({ pathname: "/property-breakdown", params: { propertyId: item.propertyId } });
+                          } else {
+                            router.push("/properties");
+                          }
+                        }}
+                      >
                         <View style={[s.duesItemIcon, { backgroundColor: iconBg }]}>
                           <Feather
-                            name={item.kind === "rent" ? (item.overdue ? "alert-triangle" : "user") : "activity"}
+                            name={item.kind === "rent" ? (item.overdue ? "alert-triangle" : "user") : item.kind === "maintenance" ? "tool" : "activity"}
                             size={15}
                             color={iconColor}
                           />
@@ -1020,7 +1067,7 @@ export default function Dashboard() {
                           <Text style={s.duesAmount}>${item.amount.toLocaleString()}</Text>
                           <Text style={[s.duesLabel, { color: labelColor }]}>{label}</Text>
                         </View>
-                      </View>
+                      </TouchableOpacity>
                     );
                   })}
               </ScrollView>

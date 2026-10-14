@@ -91,7 +91,11 @@ function nameForUtility(utilityId) {
   const id = String(utilityId || "").trim();
   if (!id) return "Unknown provider";
   const hit = SUPPORTED_UTILITIES.find((u) => u.uid.toLowerCase() === id.toLowerCase());
-  return hit ? hit.name : id;
+  if (hit) return hit.name;
+  const regional = NJNY_PROVIDERS.find(
+    (u) => u.uid.toLowerCase() === id.toLowerCase() || (u.utilityApiUid || "").toLowerCase() === id.toLowerCase()
+  );
+  return regional ? regional.name : id;
 }
 
 async function fetchLatestBill(meterUids) {
@@ -118,7 +122,33 @@ function billDueDay(bill, fallback = 15) {
  * An optional provider uid opens the hosted page straight on that provider.
  */
 exports.createAuthForm = async (utilityUid) => {
-  const body = utilityUid ? { utility: utilityUid } : {};
+  const raw = String(utilityUid || "").trim();
+  if (raw) {
+    const regional = NJNY_PROVIDERS.find((u) => u.uid.toLowerCase() === raw.toLowerCase());
+    if (regional && !regional.utilityApiUid) {
+      if (regional.method === "arcadia") {
+        throw new HttpsError(
+          "failed-precondition",
+          `${regional.name} auto-syncs through Arcadia (NJ engine), not UtilityAPI. Use the app's Arcadia connect flow instead of a UtilityAPI auth form.`
+        );
+      }
+      throw new HttpsError(
+        "failed-precondition",
+        `${regional.name} is not on UtilityAPI's auto-sync network. Open ${regional.connectUrl} (Green Button / My Account), share or download your usage, then enter the bill in Provalta manually.`
+      );
+    }
+    const alias = NJNY_PROVIDERS.find((u) => u.uid.toLowerCase() === raw.toLowerCase() && u.utilityApiUid);
+    const trueUid = alias ? alias.utilityApiUid : raw;
+    const known = SUPPORTED_UTILITIES.some((u) => u.uid.toLowerCase() === String(trueUid).toLowerCase());
+    try {
+      const form = await createAuthForm(known ? trueUid : raw);
+      return { formUid: form.uid, url: form.url };
+    } catch (e) {
+      const form = await createAuthForm({});
+      return { formUid: form.uid, url: form.url };
+    }
+  }
+  const body = {};
   try {
     const form = await createAuthForm(body);
     return { formUid: form.uid, url: form.url };
@@ -156,8 +186,36 @@ const SUPPORTED_UTILITIES = [
   { uid: "WELLAND", name: "Welland Hydro-Electric" },
 ];
 
+/**
+ * NJ + NY provider directory (mirrors api/_shared/utilityapi.js).
+ * UtilityAPI auto-sync only covers the 17 IDs above; every entry below with
+ * utilityApiUid:null must go through Green Button / My Account, never
+ * POST /forms. See that file for the full rationale + URLs.
+ */
+const NJNY_PROVIDERS = [
+  { uid: "NY-CONED", name: "Con Edison (NYC / Westchester)", states: ["NY"], fuels: ["Electric", "Gas"], method: "greenbutton", utilityApiUid: null, connectUrl: "https://www.coned.com/en/accounts-billing/share-energy-usage-data/share-my-data", loginUrl: "https://www.coned.com/en/login", note: "Share My Data via Green Button Connect. For statewide hub see NYSERDA IEDR." },
+  { uid: "NY-NGRID", name: "National Grid (NY — Upstate / NYC gas)", states: ["NY"], fuels: ["Electric", "Gas"], method: "auto", utilityApiUid: "NATIONALGRID", connectUrl: "https://greenbuttonconnect.nationalgrid.com/", loginUrl: "https://greenbuttonconnect.nationalgrid.com/", note: "Auto-sync supported — pick National Grid in the UtilityAPI flow." },
+  { uid: "NY-PSEGLI", name: "PSEG Long Island", states: ["NY"], fuels: ["Electric"], method: "greenbutton", utilityApiUid: null, connectUrl: "https://greenbutton.iedr.nyserda.ny.gov/", loginUrl: "https://www.psegliny.com/", note: "Share data via NYSERDA IEDR Green Button directory." },
+  { uid: "NY-ORU", name: "Orange & Rockland (O&R)", states: ["NY", "NJ"], fuels: ["Electric", "Gas"], method: "greenbutton", utilityApiUid: null, connectUrl: "https://www.oru.com/en/accounts-billing/share-energy-usage-data", loginUrl: "https://www.oru.com/en/login", note: "Share My Data + Green Button Download available." },
+  { uid: "NY-NYSEG", name: "NYSEG (Avangrid)", states: ["NY"], fuels: ["Electric", "Gas"], method: "greenbutton", utilityApiUid: null, connectUrl: "https://greenbutton.iedr.nyserda.ny.gov/", loginUrl: "https://www.nyseg.com/", note: "Share data via NYSERDA IEDR Green Button directory." },
+  { uid: "NY-RGE", name: "Rochester Gas & Electric (RG&E)", states: ["NY"], fuels: ["Electric", "Gas"], method: "greenbutton", utilityApiUid: null, connectUrl: "https://greenbutton.iedr.nyserda.ny.gov/", loginUrl: "https://www.rge.com/", note: "Share data via NYSERDA IEDR Green Button directory." },
+  { uid: "NY-CH", name: "Central Hudson", states: ["NY"], fuels: ["Electric", "Gas"], method: "greenbutton", utilityApiUid: null, connectUrl: "https://greenbutton.iedr.nyserda.ny.gov/", loginUrl: "https://www.cenhud.com/", note: "Share data via NYSERDA IEDR Green Button directory." },
+  { uid: "NY-NFG", name: "National Fuel Gas", states: ["NY"], fuels: ["Gas"], method: "greenbutton", utilityApiUid: null, connectUrl: "https://greenbutton.iedr.nyserda.ny.gov/", loginUrl: "https://www.nationalfuel.com/", note: "Share data via NYSERDA IEDR Green Button directory." },
+  { uid: "NY-IEDR", name: "NY State Green Button Hub (IEDR — all NY utilities)", states: ["NY"], fuels: ["Electric", "Gas"], method: "greenbutton", utilityApiUid: null, connectUrl: "https://greenbutton.iedr.nyserda.ny.gov/", loginUrl: "https://greenbutton.iedr.nyserda.ny.gov/", note: "One directory for every NY utility: Con Ed, NYSEG, RG&E, O&R, PSEG-LI, Central Hudson, National Grid, National Fuel." },
+  { uid: "NJ-PSEG", name: "PSE&G (NJ)", states: ["NJ"], fuels: ["Electric", "Gas"],   method: "arcadia", utilityApiUid: null, connectUrl: "https://nj.myaccount.pseg.com/myaccountsloggedout", loginUrl: "https://nj.myaccount.pseg.com/myaccountsloggedout", note: "My Account → Green Button Download, auto-syncs via Arcadia (NJ meter price)." },
+  { uid: "NJ-JCPL", name: "JCP&L / FirstEnergy (NJ)", states: ["NJ"], fuels: ["Electric"],   method: "arcadia", utilityApiUid: null, connectUrl: "https://www.firstenergycorp.com/jersey_central_power_light.html", loginUrl: "https://www.firstenergycorp.com/log_in.html", note: "My Account → Green Button Download, auto-syncs via Arcadia (NJ meter price)." },
+  { uid: "NJ-ACE", name: "Atlantic City Electric", states: ["NJ"], fuels: ["Electric"],   method: "arcadia", utilityApiUid: null, connectUrl: "https://www.atlanticcityelectric.com/", loginUrl: "https://www.atlanticcityelectric.com/MyAccount", note: "My Account → Green Button Download, auto-syncs via Arcadia (NJ meter price)." },
+  { uid: "NJ-RECO", name: "Rockland Electric (RECO — NJ)", states: ["NJ"], fuels: ["Electric"], method: "arcadia", utilityApiUid: null, connectUrl: "https://www.oru.com/en/accounts-billing/share-energy-usage-data", loginUrl: "https://www.oru.com/en/login", note: "O&R family — auto-syncs via Arcadia (NJ meter price)." },
+  { uid: "NJ-ETG", name: "Elizabethtown Gas (NJ)", states: ["NJ"], fuels: ["Gas"],   method: "arcadia", utilityApiUid: null, connectUrl: "https://www.etownchas.com/", loginUrl: "https://www.etownchas.com/my-account", note: "My Account → usage download, auto-syncs via Arcadia (NJ meter price)." },
+  { uid: "NJ-NJNG", name: "New Jersey Natural Gas (NJNG)", states: ["NJ"], fuels: ["Gas"],   method: "arcadia", utilityApiUid: null, connectUrl: "https://www.njng.com/", loginUrl: "https://www.njng.com/my-account", note: "My Account → usage download, auto-syncs via Arcadia (NJ meter price)." },
+  { uid: "NJ-SJG", name: "South Jersey Gas", states: ["NJ"], fuels: ["Gas"],   method: "arcadia", utilityApiUid: null, connectUrl: "https://www.southjerseygas.com/", loginUrl: "https://www.southjerseygas.com/my-account", note: "My Account → usage download, auto-syncs via Arcadia (NJ meter price)." },
+];
+
 /** Provider catalog for the in-app picker (uid + name, sorted). */
-exports.listUtilities = async () => SUPPORTED_UTILITIES.map((u) => ({ ...u }));
+exports.listUtilities = async () => [
+  ...SUPPORTED_UTILITIES.map((u) => ({ ...u, method: "auto", states: u.uid === "NATIONALGRID" ? ["NY", "MA"] : [], utilityApiUid: u.uid })),
+  ...NJNY_PROVIDERS.map((u) => ({ ...u })),
+];
 
 /**
  * Link a completed authorization to utility data for a property. Runs the full

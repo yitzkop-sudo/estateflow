@@ -13,8 +13,10 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ScreenHeader } from "../components/screen-header";
 import { BarChart, PieChart } from "react-native-gifted-charts";
 import { auth, db } from "../lib/firebase";
+import { utilitiesTotal, utilityTotal as utilitySum } from "../lib/utilities";
 import { useResponsive } from "../hooks/use-responsive";
 
 type UtilityItem = {
@@ -166,13 +168,7 @@ export default function PropertyBreakdown() {
     return rent || property.monthlyIncome || 0;
   }, [property, tenants]);
 
-  const utilityTotal = useMemo(() => {
-    if (!property?.utilities) return 0;
-    return Object.values(property.utilities).reduce(
-      (s, u) => s + (parseFloat(u.amount) || 0),
-      0
-    );
-  }, [property]);
+  const utilityTotal = useMemo(() => utilitiesTotal(property?.utilities), [property]);
 
   const maintTotal = useMemo(
     () => maintenance.reduce((s, m) => s + (m.cost || 0), 0),
@@ -194,7 +190,7 @@ export default function PropertyBreakdown() {
       const bucket = known
         ? EXPENSE_CATEGORIES.find((c) => c.key.toLowerCase() === key.toLowerCase())!.key
         : "Other";
-      totals[bucket] = (totals[bucket] || 0) + (parseFloat(u.amount) || 0);
+      totals[bucket] = (totals[bucket] || 0) + utilitySum(u);
     });
     return totals;
   }, [property]);
@@ -249,27 +245,18 @@ export default function PropertyBreakdown() {
         ) : (
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
             {/* HEADER */}
-            <View style={styles.header}>
-              <TouchableOpacity
-                onPress={() => (router.canGoBack() ? router.back() : router.replace("/insights"))}
-                style={styles.backBtn}
-              >
-                <Feather name="chevron-left" size={22} color="#fff" />
-              </TouchableOpacity>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.headerTitle} numberOfLines={1}>
-                  {property.propertyName}
-                </Text>
-                <Text style={styles.headerSub} numberOfLines={1}>
-                  {property.address || property.propertyType || ""}
-                </Text>
-              </View>
-              <View style={[styles.marginPill, { backgroundColor: `${netColor}1A` }]}>
-                <Text style={[styles.marginPillText, { color: netColor }]}>
-                  {margin.toFixed(0)}%
-                </Text>
-              </View>
-            </View>
+            <ScreenHeader
+              title={property.propertyName}
+              subtitle={property.address || property.propertyType || ""}
+              onBack={() => router.replace("/insights")}
+              right={
+                <View style={[styles.marginPill, { backgroundColor: `${netColor}1A` }]}>
+                  <Text style={[styles.marginPillText, { color: netColor }]}>
+                    {margin.toFixed(0)}%
+                  </Text>
+                </View>
+              }
+            />
 
             {/* SUMMARY STATS */}
             <View style={styles.statRow}>
