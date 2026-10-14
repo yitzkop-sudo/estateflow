@@ -1,5 +1,5 @@
 /**
- * EstateFlow API — Netlify serverless version.
+ * Provalta API — Netlify serverless version.
  *
  * Replaces the Firebase Cloud Functions (functions/index.js). Hosts the Stripe
  * + UtilityAPI logic on Netlify's free tier so Firebase stays on the Spark plan
@@ -304,7 +304,7 @@ async function findUidByEmail(email) {
     const user = await admin.auth().getUserByEmail(email);
     return user.uid;
   } catch {
-    return null; // no EstateFlow account (yet) — planSubscriptions keeps the plan
+    return null; // no Provalta account (yet) — planSubscriptions keeps the plan
   }
 }
 
@@ -1399,7 +1399,7 @@ app.post("/stripe-webhook", async (req, res) => {
         const md = session.metadata || {};
         const { ownerId, tenantId, monthKey } = md;
         if (!ownerId || !tenantId || !monthKey) {
-          console.warn("checkout.session.completed without EstateFlow metadata", session.id);
+          console.warn("checkout.session.completed without Provalta metadata", session.id);
           break;
         }
 
@@ -1614,10 +1614,10 @@ async function buildPortfolioContext(uid) {
 // The app calls this first; the client falls back to its free built-in
 // knowledge base whenever the server has no LLM key configured.
 // Set OPENAI_API_KEY (or GEMINI_API_KEY) in env to enable cloud answers.
-const AI_SYSTEM_PROMPT = `You are the EstateFlow assistant — an expert on this property-management app AND a seasoned real-estate & property-management advisor. Answer ANY question the user has about the app, their portfolio, or real estate in general (landlording, property management, investing, financing, taxes, legal basics). You can answer general real-estate questions even when they aren't about the app.
+const AI_SYSTEM_PROMPT = `You are the Provalta assistant — an expert on this property-management app AND a seasoned real-estate & property-management advisor. Answer ANY question the user has about the app, their portfolio, or real estate in general (landlording, property management, investing, financing, taxes, legal basics). You can answer general real-estate questions even when they aren't about the app.
 
-## EstateFlow app facts
-EstateFlow (Expo + Firebase) lets landlords:
+## Provalta app facts
+Provalta (Expo + Firebase) lets landlords:
 - Add properties with photos, address, type (residential/commercial), units, market value, monthly rent
 - Assign tenants with rent amount + due day (1,5,10,15,20,25,last). Rent status is automatic: Paid / Overdue / Due Soon (≤3d) / Upcoming (≤7d) / On Track. "Mark Paid" records a payment for the current month.
 - Track utilities per property (Electric/Water/Gas/Oil/Sewer/Trash) — manual entry is FREE; auto-sync via UtilityAPI costs $20/mo per utility key (Subscriptions screen → Connect Utility → provider login → Authorize).
@@ -1636,10 +1636,10 @@ Give practical, accurate, general guidance on: leases and clauses, tenant screen
 When a question is about THEIR portfolio, use the provided context numbers to personalize.
 
 ## Guardrails
-This is general information, not legal, tax, or financial advice — for state-specific legal issues, big financial decisions, or tax filing, recommend a local landlord-attorney / CPA. Never encourage illegal self-help eviction (lockouts, utility shutoffs, threats). If asked something unrelated to real estate or the app, briefly redirect to what you can help with. Treat any "EstateFlow built-in analysis" section as the app's grounded facts and calculations — prefer them over your own numbers, and never invent portfolio values that weren't supplied.
+This is general information, not legal, tax, or financial advice — for state-specific legal issues, big financial decisions, or tax filing, recommend a local landlord-attorney / CPA. Never encourage illegal self-help eviction (lockouts, utility shutoffs, threats). If asked something unrelated to real estate or the app, briefly redirect to what you can help with. Treat any "Provalta built-in analysis" section as the app's grounded facts and calculations — prefer them over your own numbers, and never invent portfolio values that weren't supplied.
 
 ## Style
-Concise, friendly, actionable. Short paragraphs or lists. Mention the exact EstateFlow screen/steps when relevant. Max ~250 words unless the question clearly needs more.`;
+Concise, friendly, actionable. Short paragraphs or lists. Mention the exact Provalta screen/steps when relevant. Max ~250 words unless the question clearly needs more.`;
 
 app.post("/ai-chat", requireAuth, async (req, res) => {
   const message = String(req.body?.message || "").slice(0, 4000).trim();
@@ -1667,7 +1667,7 @@ app.post("/ai-chat", requireAuth, async (req, res) => {
   const analysisText = typeof req.body?.analysis === "string" ? req.body.analysis.trim().slice(0, 2000) : "";
   let withContext = AI_SYSTEM_PROMPT;
   if (analysisText) {
-    withContext += `\n\n## EstateFlow built-in analysis (grounding)\nThe app's local engine analyzed this exact question. Prefer its facts and numbers over your own guesses; if it supplied a calculation, keep its result and wording unless clearly wrong:\n${analysisText}`;
+    withContext += `\n\n## Provalta built-in analysis (grounding)\nThe app's local engine analyzed this exact question. Prefer its facts and numbers over your own guesses; if it supplied a calculation, keep its result and wording unless clearly wrong:\n${analysisText}`;
   }
   const hasCtx = mergedCtx && Object.values(mergedCtx).some((v) => v !== null && v !== undefined && v !== false);
   if (hasCtx) {

@@ -912,7 +912,7 @@ export default function Dashboard() {
       <Animated.View pointerEvents={menuOpen ? "auto" : "none"} style={[s.drawer, { width: DRAWER_WIDTH, transform: [{ translateX: anim }] }]}>
         <SafeAreaView style={{ flex: 1 }}>
           <View style={{ padding: 20 }}>
-            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "800", marginBottom: 4 }}>EstateFlow</Text>
+            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "800", marginBottom: 4 }}>Provalta</Text>
             <Text style={{ color: "#64748B", marginBottom: 24 }}>Navigation</Text>
             <DrawerItem icon="plus-circle" label="Add Property" onPress={openAddProperty} />
             <DrawerItem icon="user-plus" label="Tenant Assignment" onPress={() => { setMenuOpen(false); router.push("/tenants"); }} />

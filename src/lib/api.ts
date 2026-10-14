@@ -1,7 +1,7 @@
 import { auth } from "./firebase";
 
 /**
- * Thin client for the EstateFlow API (Netlify Function).
+ * Thin client for the Provalta API (Netlify Function).
  *
  * The server verifies the signed-in user with the Firebase ID token we send in
  * the `Authorization: Bearer` header, replicating the auth that Firebase

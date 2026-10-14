@@ -1,5 +1,5 @@
 /**
- * EstateFlow API — Vercel serverless entry.
+ * Provalta API — Vercel serverless entry.
  *
  * Uses the Express app in ./_app.js (same file the Netlify Function
  * re-exports), kept inside api/ with underscore-prefixed names so it is

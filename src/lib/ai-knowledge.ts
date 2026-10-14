@@ -1,5 +1,5 @@
 /**
- * EstateFlow AI — built-in knowledge base.
+ * Provalta AI — built-in knowledge base.
  *
  * Free, offline-first answers about the app + general real-estate /
  * property-management guidance. The chat engine (../lib/ai) scores these
@@ -34,12 +34,12 @@ export type PortfolioContext = {
 export const KNOWLEDGE: AIKnowledgeEntry[] = [
   // ─── App: overview ──────────────────────────────────────────────
   {
-    id: "what-is-estateflow",
+    id: "what-is-provalta",
     category: "app",
-    title: "What is EstateFlow?",
-    keywords: ["what is estateflow", "about the app", "what does this app do", "estateflow", "overview"],
+    title: "What is Provalta?",
+    keywords: ["what is provalta", "about the app", "what does this app do", "provalta", "overview"],
     answer:
-      "EstateFlow is a property-management app for landlords and property managers. You can: add properties with photos, assign tenants and track rent, log utilities (manually or with auto-sync), track maintenance, view Insights charts, export reports, collect rent by card via Stripe, and get due-date reminders. Open the menu (☰) on the Dashboard to reach every section.",
+      "Provalta is a property-management app for landlords and property managers. You can: add properties with photos, assign tenants and track rent, log utilities (manually or with auto-sync), track maintenance, view Insights charts, export reports, collect rent by card via Stripe, and get due-date reminders. Open the menu (☰) on the Dashboard to reach every section.",
   },
   {
     id: "add-property",
@@ -154,7 +154,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Export reports",
     keywords: ["export", "report", "excel", "csv", "download", "spreadsheet"],
     answer:
-      "Tap Export on the Dashboard (Recent Activity), Tenants, or Insights screens to download a full report (properties, tenants, payments, maintenance) as a spreadsheet. Excel export is a Professional-plan feature — upgrade on the EstateFlow website if prompted.",
+      "Tap Export on the Dashboard (Recent Activity), Tenants, or Insights screens to download a full report (properties, tenants, payments, maintenance) as a spreadsheet. Excel export is a Professional-plan feature — upgrade on the Provalta website if prompted.",
   },
   {
     id: "payouts",
@@ -223,7 +223,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Data privacy and security",
     keywords: ["privacy", "is my data safe", "secure", "who can see my data", "data security", "encrypted"],
     answer:
-      "Your property, tenant and financial data is stored per-account in Firebase and isn't visible to other users. Only you (and anyone you explicitly share tenant-portal access with) can see it. Payments run through Stripe, which is PCI-compliant — EstateFlow never stores your card numbers directly. For full details, check the app's privacy policy on the EstateFlow website.",
+      "Your property, tenant and financial data is stored per-account in Firebase and isn't visible to other users. Only you (and anyone you explicitly share tenant-portal access with) can see it. Payments run through Stripe, which is PCI-compliant — Provalta never stores your card numbers directly. For full details, check the app's privacy policy on the Provalta website.",
   },
   {
     id: "property-breakdown",
@@ -258,7 +258,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Property management basics",
     keywords: ["property management", "landlord tips", "manage property", "manage rental", "beginner landlord"],
     answer:
-      "Property-management essentials: 1) Screen tenants (income ~3x rent, references, background/credit where legal). 2) Use a written lease (rent, due date, late fees, maintenance duties, term). 3) Collect rent consistently + enforce late policy. 4) Maintain the property (preventive beats emergency). 5) Track income/expenses monthly — EstateFlow's Dashboard + Insights do this. 6) Keep reserves (~3–6 months expenses) for vacancies and repairs. 7) Know local landlord-tenant law before acting.",
+      "Property-management essentials: 1) Screen tenants (income ~3x rent, references, background/credit where legal). 2) Use a written lease (rent, due date, late fees, maintenance duties, term). 3) Collect rent consistently + enforce late policy. 4) Maintain the property (preventive beats emergency). 5) Track income/expenses monthly — Provalta's Dashboard + Insights do this. 6) Keep reserves (~3–6 months expenses) for vacancies and repairs. 7) Know local landlord-tenant law before acting.",
   },
   {
     id: "screening",
@@ -290,7 +290,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Late or missing rent",
     keywords: ["late rent", "tenant not paying", "not paying", "wont pay", "behind on rent", "missed rent", "overdue rent", "collect late"],
     answer:
-      "Act early and in writing: 1) Send a polite reminder the day after due date. 2) Apply the lease's late fee after the grace period. 3) Call + offer a short written payment plan if it's a first lapse. 4) Serve a formal Pay-or-Quit notice per your state if unpaid. 5) Never shut off utilities, change locks, or remove belongings yourself — that's illegal self-help eviction in most states. In EstateFlow, overdue tenants surface on the Dashboard Rent Due card automatically.",
+      "Act early and in writing: 1) Send a polite reminder the day after due date. 2) Apply the lease's late fee after the grace period. 3) Call + offer a short written payment plan if it's a first lapse. 4) Serve a formal Pay-or-Quit notice per your state if unpaid. 5) Never shut off utilities, change locks, or remove belongings yourself — that's illegal self-help eviction in most states. In Provalta, overdue tenants surface on the Dashboard Rent Due card automatically.",
   },
   {
     id: "security-deposit",
@@ -306,7 +306,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Maintenance strategy",
     keywords: ["maintenance plan", "preventive maintenance", "repairs", "emergency repair", "maintenance schedule"],
     answer:
-      "Budget ~1–2% of property value per year for maintenance (older homes more). Schedule seasonal checks: HVAC filters/service, water heater flush, roof/gutters, smoke + CO detectors, plumbing leaks, caulking/weatherproofing. Respond to tenant requests fast (24h habitability issues, 48h urgent, ~1 week routine) — it cuts turnover. Log every job + cost in EstateFlow Maintenance so Insights reflects true expenses.",
+      "Budget ~1–2% of property value per year for maintenance (older homes more). Schedule seasonal checks: HVAC filters/service, water heater flush, roof/gutters, smoke + CO detectors, plumbing leaks, caulking/weatherproofing. Respond to tenant requests fast (24h habitability issues, 48h urgent, ~1 week routine) — it cuts turnover. Log every job + cost in Provalta Maintenance so Insights reflects true expenses.",
   },
   {
     id: "cashflow-metrics",
@@ -330,7 +330,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Insurance and property tax",
     keywords: ["insurance", "landlord insurance", "property tax", "taxes", "escrow", "umbrella policy"],
     answer:
-      "Carry landlord (dwelling-fire/DP) insurance — not homeowners — covering building, liability and loss of rents; require tenants to carry renters insurance. Review coverage yearly. Property taxes vary by county: verify assessed value, exemptions, appeal deadlines, and escrow vs direct pay. Track both in EstateFlow as expenses/notes so your true cash flow is visible.",
+      "Carry landlord (dwelling-fire/DP) insurance — not homeowners — covering building, liability and loss of rents; require tenants to carry renters insurance. Review coverage yearly. Property taxes vary by county: verify assessed value, exemptions, appeal deadlines, and escrow vs direct pay. Track both in Provalta as expenses/notes so your true cash flow is visible.",
   },
   {
     id: "eviction",
@@ -354,7 +354,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Record keeping and taxes",
     keywords: ["records", "bookkeeping", "tax deductions", "schedule e", "receipts", "accounting"],
     answer:
-      "Keep every receipt: rent, utilities, repairs, insurance, taxes, mileage, management fees. Common deductible categories (US, verify with a CPA): mortgage interest, taxes, insurance, repairs (not improvements), management, utilities you pay, professional fees, depreciation. Reconcile monthly — EstateFlow exports give your CPA clean income/expense records.",
+      "Keep every receipt: rent, utilities, repairs, insurance, taxes, mileage, management fees. Common deductible categories (US, verify with a CPA): mortgage interest, taxes, insurance, repairs (not improvements), management, utilities you pay, professional fees, depreciation. Reconcile monthly — Provalta exports give your CPA clean income/expense records.",
   },
   {
     id: "first-rental",
@@ -362,7 +362,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Buying your first rental",
     keywords: ["first rental", "buy rental", "investment property", "buy property", "starter investment"],
     answer:
-      "First-rental checklist: 1) Financing pre-approval (investment loans differ from primary). 2) Target cash-flowing areas (jobs, schools, low vacancy). 3) Underwrite conservatively (include vacancy 5–8%, maintenance 1–2%/yr, capex reserve). 4) Inspect thoroughly (roof, foundation, electrical, plumbing, HVAC). 5) Start small (single-family or small multi). 6) Line up insurance, lease, and management workflow — EstateFlow covers tracking from day one.",
+      "First-rental checklist: 1) Financing pre-approval (investment loans differ from primary). 2) Target cash-flowing areas (jobs, schools, low vacancy). 3) Underwrite conservatively (include vacancy 5–8%, maintenance 1–2%/yr, capex reserve). 4) Inspect thoroughly (roof, foundation, electrical, plumbing, HVAC). 5) Start small (single-family or small multi). 6) Line up insurance, lease, and management workflow — Provalta covers tracking from day one.",
   },
   {
     id: "financing",
@@ -394,7 +394,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Hiring a property manager",
     keywords: ["property manager", "management company", "management fee", "self manage", "pm company"],
     answer:
-      "Property managers typically charge 8–12% of collected rent (plus ~50–100% of one month to place a tenant). They handle marketing, screening, leasing, rent collection, maintenance coordination and sometimes evictions. Worth it if you're remote, own multiple units, or value time; self-managing (what EstateFlow supports well) saves that margin but is your job. Vet managers on owner references, fee transparency, and their maintenance-markup policy.",
+      "Property managers typically charge 8–12% of collected rent (plus ~50–100% of one month to place a tenant). They handle marketing, screening, leasing, rent collection, maintenance coordination and sometimes evictions. Worth it if you're remote, own multiple units, or value time; self-managing (what Provalta supports well) saves that margin but is your job. Vet managers on owner references, fee transparency, and their maintenance-markup policy.",
   },
   {
     id: "hoa",
@@ -402,7 +402,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "HOAs and condos",
     keywords: ["hoa", "condo", "homeowners association", "assessment", "bylaws", "special assessment"],
     answer:
-      "HOAs collect dues for shared upkeep and enforce rules (rental caps, approval processes, pet/tenant rules). Before buying a rental in an HOA: read covenants, rental/leasing restrictions, reserves vs special-assessment history, and dues trajectory — special assessments can wipe out cash flow for a year. Budget HOA dues as an expense (EstateFlow: add them under the property's utilities/expenses so Insights shows true margins).",
+      "HOAs collect dues for shared upkeep and enforce rules (rental caps, approval processes, pet/tenant rules). Before buying a rental in an HOA: read covenants, rental/leasing restrictions, reserves vs special-assessment history, and dues trajectory — special assessments can wipe out cash flow for a year. Budget HOA dues as an expense (Provalta: add them under the property's utilities/expenses so Insights shows true margins).",
   },
   {
     id: "rent-control",
@@ -410,7 +410,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Rent control and increases",
     keywords: ["rent control", "rent stabilization", "increase limit", "rent cap", "notice increase"],
     answer:
-      "Some states/cities cap annual increases (often 2–10% or tied to inflation) and require formal notice (commonly 30–90+ days) before raising rent; a few limit no-cause terminations. Check your local rules before any increase — illegal increases can trigger penalties. Even where allowed, moderate increases with improvements and good communication retain tenants better. Track current rent per tenant in EstateFlow's Tenant Assignment so raises are easy to model.",
+      "Some states/cities cap annual increases (often 2–10% or tied to inflation) and require formal notice (commonly 30–90+ days) before raising rent; a few limit no-cause terminations. Check your local rules before any increase — illegal increases can trigger penalties. Even where allowed, moderate increases with improvements and good communication retain tenants better. Track current rent per tenant in Provalta's Tenant Assignment so raises are easy to model.",
   },
   {
     id: "section-8",
@@ -418,7 +418,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Section 8 / housing vouchers",
     keywords: ["section 8", "voucher", "housing choice", "hud", "subsidized tenant", "public housing"],
     answer:
-      "Section 8 (Housing Choice Voucher) tenants pay ~30% of income toward rent and the housing authority pays the rest directly. Pros: reliable government portion, low vacancy in strong demand areas. Cons: inspection process (HUD's housing-quality standards), unit-rent caps (fair-market rent), annual recertifications, and some extra paperwork. Approval laws vary — some states ban refusing voucher tenants. Keep income records clean; EstateFlow's exports help with recertification.",
+      "Section 8 (Housing Choice Voucher) tenants pay ~30% of income toward rent and the housing authority pays the rest directly. Pros: reliable government portion, low vacancy in strong demand areas. Cons: inspection process (HUD's housing-quality standards), unit-rent caps (fair-market rent), annual recertifications, and some extra paperwork. Approval laws vary — some states ban refusing voucher tenants. Keep income records clean; Provalta's exports help with recertification.",
   },
   {
     id: "depreciation",
@@ -434,7 +434,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Appraisals and property value",
     keywords: ["appraisal", "appraised value", "property valuation", "worth", "comps", "comparable", "market value", "how much is my property worth"],
     answer:
-      "Appraisers value property primarily from comparables (recent nearby sales) and, for rentals, sometimes the income approach (NOI ÷ cap rate). You can contest a low appraisal with better comps, document condition upgrades, or appeal your tax assessment separately. EstateFlow's market-value field feeds your Dashboard portfolio value — update it annually or after major renovations so Insights reflects reality.",
+      "Appraisers value property primarily from comparables (recent nearby sales) and, for rentals, sometimes the income approach (NOI ÷ cap rate). You can contest a low appraisal with better comps, document condition upgrades, or appeal your tax assessment separately. Provalta's market-value field feeds your Dashboard portfolio value — update it annually or after major renovations so Insights reflects reality.",
   },
   {
     id: "move-out",
@@ -450,7 +450,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "LLCs and liability",
     keywords: ["llc", "llc rental", "liability", "umbrella", "asset protection", "business structure", "sole proprietor"],
     answer:
-      "Common setups: sole proprietor (simplest, personal liability), LLC per property or portfolio (separates business liability, needs its own bank account and operating agreement), plus an umbrella insurance policy ($1–2M) as cheap extra protection. Transferring a titled property into an LLC can trigger due-on-sale or transfer-tax issues — ask a real-estate attorney first. Keep good books regardless; EstateFlow exports give your attorney/CPA clean records.",
+      "Common setups: sole proprietor (simplest, personal liability), LLC per property or portfolio (separates business liability, needs its own bank account and operating agreement), plus an umbrella insurance policy ($1–2M) as cheap extra protection. Transferring a titled property into an LLC can trigger due-on-sale or transfer-tax issues — ask a real-estate attorney first. Keep good books regardless; Provalta exports give your attorney/CPA clean records.",
   },
   {
     id: "short-term-rental",
@@ -458,7 +458,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Short-term vs long-term rentals",
     keywords: ["airbnb", "short term rental", "str", "vacation rental", "midterm rental", "furnished rental"],
     answer:
-      "Short-term (Airbnb/VRBO) can gross 2–3x long-term rent in tourist/business areas but needs furnishing, frequent cleaning, dynamic pricing, permits/HOA approval, and absorbs vacancy + platform fees. Long-term is steadier with less work. Middle path: mid-term furnished rentals (30+ days) for traveling nurses/relocators. If you own both, track each property separately in EstateFlow so Insights shows which model actually wins in your market.",
+      "Short-term (Airbnb/VRBO) can gross 2–3x long-term rent in tourist/business areas but needs furnishing, frequent cleaning, dynamic pricing, permits/HOA approval, and absorbs vacancy + platform fees. Long-term is steadier with less work. Middle path: mid-term furnished rentals (30+ days) for traveling nurses/relocators. If you own both, track each property separately in Provalta so Insights shows which model actually wins in your market.",
   },
   {
     id: "tenant-retention",
@@ -466,7 +466,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Keeping good tenants",
     keywords: ["tenant retention", "renew lease", "good tenant leave", "renewal", "keep tenant happy", "retention"],
     answer:
-      "Every good tenant who stays saves you turnover costs (make-ready + vacancy ≈ 1–2 months' rent). Retention wins: respond to repairs fast, small renewal upgrades or modest increases instead of market-max jumps, easy rent payment (EstateFlow's card portal), proper notice and respect of privacy, and a short renewal survey ('anything we can fix before you re-sign?'). Screen well up front — retention starts with tenants who fit the property.",
+      "Every good tenant who stays saves you turnover costs (make-ready + vacancy ≈ 1–2 months' rent). Retention wins: respond to repairs fast, small renewal upgrades or modest increases instead of market-max jumps, easy rent payment (Provalta's card portal), proper notice and respect of privacy, and a short renewal survey ('anything we can fix before you re-sign?'). Screen well up front — retention starts with tenants who fit the property.",
   },
   {
     id: "winter-seasonal",
@@ -474,7 +474,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Seasonal maintenance checklist",
     keywords: ["seasonal", "winterize", "fall checklist", "spring checklist", "hvac filter", "gutter cleaning", "preventive checklist"],
     answer:
-      "Seasonal preventive checklist: Fall — gutter cleaning, roof/flashings, seal exterior gaps, furnace service, disconnect hoses, insulate exposed pipes. Winter — watch for ice dams, test smoke/CO detectors, check attic ventilation. Spring — A/C service, exterior paint/caulk, irrigation, foundation drainage. Summer — deck/fence, water-heater flush, tree trimming. Filter changes every 1–3 months. Log each job in EstateFlow Maintenance so costs and history stay visible.",
+      "Seasonal preventive checklist: Fall — gutter cleaning, roof/flashings, seal exterior gaps, furnace service, disconnect hoses, insulate exposed pipes. Winter — watch for ice dams, test smoke/CO detectors, check attic ventilation. Spring — A/C service, exterior paint/caulk, irrigation, foundation drainage. Summer — deck/fence, water-heater flush, tree trimming. Filter changes every 1–3 months. Log each job in Provalta Maintenance so costs and history stay visible.",
   },
   {
     id: "landlord-insurance-claims",
@@ -482,7 +482,7 @@ export const KNOWLEDGE: AIKnowledgeEntry[] = [
     title: "Insurance claims and damage",
     keywords: ["insurance claim", "water damage", "fire damage", "storm damage", "deductible claim", "loss of rent"],
     answer:
-      "After damage: 1) Mitigate further loss immediately (shut water off, board up) — keep receipts. 2) Photograph everything before cleanup. 3) File promptly; adjusters pay on documented loss. 4) Loss-of-rents coverage can reimburse missed rent during repairs if your policy includes it. 5) Raise deductibles rather than filing small claims (frequent claims raise premiums or get you dropped). Track repair costs in EstateFlow Maintenance and keep the claim paperwork with your records.",
+      "After damage: 1) Mitigate further loss immediately (shut water off, board up) — keep receipts. 2) Photograph everything before cleanup. 3) File promptly; adjusters pay on documented loss. 4) Loss-of-rents coverage can reimburse missed rent during repairs if your policy includes it. 5) Raise deductibles rather than filing small claims (frequent claims raise premiums or get you dropped). Track repair costs in Provalta Maintenance and keep the claim paperwork with your records.",
   },
 ];
 
@@ -496,7 +496,7 @@ const normalize = (s: string) =>
     .trim();
 
 /**
- * EstateFlow AI search engine.
+ * Provalta AI search engine.
  *
  * Improvements over the original:
  * - intent detection
@@ -542,7 +542,7 @@ const SYNONYMS: Record<string, string[]> = {
   increase: ["raise", "hike", "escalate"],
   vacancy: ["empty", "unoccupied", "vacant"],
   screen: ["screening", "vet", "vetting", "background", "check"],
-  app: ["estateflow", "application", "software", "tool", "platform"],
+  app: ["provalta", "application", "software", "tool", "platform"],
   question: ["help", "how", "what", "explain", "guide"],
   password: ["login", "credentials", "signin", "sign in"],
   cancel: ["unsubscribe", "downgrade", "stop"],
@@ -558,7 +558,7 @@ const INTENT_RULES: Array<{
   patterns: string[];
   category?: AIKnowledgeEntry["category"];
 }> = [
-  { intent: "app_help", patterns: ["estateflow", "dashboard", "app", "screen", "menu", "feature", "where do i"] },
+  { intent: "app_help", patterns: ["provalta", "dashboard", "app", "screen", "menu", "feature", "where do i"] },
   { intent: "add_property", patterns: ["add property", "new property", "create property", "add house", "add building"] },
   { intent: "tenant_rent", patterns: ["tenant", "renter", "rent", "lease payment", "rent due", "rent paid", "overdue"] },
   { intent: "utilities", patterns: ["utility", "utilities", "electric", "water", "gas", "oil", "sewer", "trash", "bill"] },
@@ -783,7 +783,7 @@ export function suggestTopics(query: string, topN = 4): { title: string }[] {
     .map((x) => ({ title: x.entry.title }));
 }
 
-/** Analyze a question before deciding how EstateFlow AI should respond. */
+/** Analyze a question before deciding how Provalta AI should respond. */
 export function analyzeQuery(query: string): AIQueryAnalysis {
   const normalized = normalize(query);
   const { intent, confidence } = detectIntent(normalized);
@@ -1027,7 +1027,7 @@ export function buildAIContext(query: string, maxEntries = 2, ctx?: PortfolioCon
     `Intent: ${analysis.intent}`,
     `Confidence: ${Math.round(analysis.confidence * 100)}%`,
     knowledge.length
-      ? `Relevant EstateFlow knowledge:\n${knowledge.map((e) => `- ${e.title}: ${e.answer}`).join("\n")}`
+      ? `Relevant Provalta knowledge:\n${knowledge.map((e) => `- ${e.title}: ${e.answer}`).join("\n")}`
       : "No exact knowledge-base answer found.",
   ];
 
@@ -1040,11 +1040,11 @@ export function buildAIContext(query: string, maxEntries = 2, ctx?: PortfolioCon
 
 /** Response guidance for the optional LLM endpoint. */
 export const AI_SYSTEM_GUIDANCE = `
-You are EstateFlow AI, a helpful property-management assistant.
+You are Provalta AI, a helpful property-management assistant.
 
 Rules:
 1. Answer the user's actual question first. Do not dump unrelated knowledge-base entries.
-2. Prefer EstateFlow's documented features when the question is about the app.
+2. Prefer Provalta's documented features when the question is about the app.
 3. When giving property-management advice, be practical and concise.
 4. Never invent a feature, screen, price, integration, or user-data value that is not provided in context.
 5. If the answer depends on the user's portfolio data, ask for or use the supplied data instead of guessing.

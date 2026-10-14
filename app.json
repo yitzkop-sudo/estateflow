@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "property-manager",
-    "slug": "property-manager",
+    "name": "Provalta",
+    "slug": "provalta",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "propertymanager",
+    "scheme": "provalta",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon",

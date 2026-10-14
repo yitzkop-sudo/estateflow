@@ -1,7 +1,7 @@
 import { apiGet, apiPost } from "./api";
 
 /**
- * Client wrappers around the EstateFlow API (Netlify Function) that drive
+ * Client wrappers around the Provalta API (Netlify Function) that drive
  * Stripe. All Stripe secrets stay server-side.
  */
 

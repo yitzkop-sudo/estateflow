@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Payment Complete — EstateFlow</title>
+  <title>Payment Complete — Provalta</title>
   <style>
     body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:#060D1C; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; color:#fff; }
     .card { text-align:center; padding:40px 28px; max-width:400px; }
@@ -20,7 +20,7 @@
   <div class="card">
     <div class="icon" id="icon">&#10003;</div>
     <h1 id="title">Auto-sync is on</h1>
-    <p id="text">Payment successful. Return to the EstateFlow app — connecting your provider is waiting for you there.</p>
+    <p id="text">Payment successful. Return to the Provalta app — connecting your provider is waiting for you there.</p>
     <button id="back">Return to the app now</button>
     <p class="hint">Or just close this tab and go back to the app yourself.</p>
   </div>
@@ -33,12 +33,12 @@
         document.getElementById("icon").textContent = "!";
         document.getElementById("icon").classList.add("cancel");
         document.getElementById("title").textContent = "Canceled";
-        document.getElementById("text").textContent = "Nothing was changed. Return to the EstateFlow app whenever you're ready.";
-        document.title = "Canceled — EstateFlow";
+        document.getElementById("text").textContent = "Nothing was changed. Return to the Provalta app whenever you're ready.";
+        document.title = "Canceled — Provalta";
       } else if (params.get("billing") === "setup") {
         document.getElementById("title").textContent = "Card saved";
-        document.getElementById("text").textContent = "Your card was added to your billing account. Return to the EstateFlow app — it is ready to use.";
-        document.title = "Card Saved — EstateFlow";
+        document.getElementById("text").textContent = "Your card was added to your billing account. Return to the Provalta app — it is ready to use.";
+        document.title = "Card Saved — Provalta";
       }
       function goBack() {
         // Works when this tab was opened by the app (web popup flow) — the

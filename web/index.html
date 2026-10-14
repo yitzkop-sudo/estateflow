@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EstateFlow — Property Management, Simplified</title>
-  <meta name="description" content="EstateFlow is the all-in-one property management app for landlords and property managers: properties, tenants, card rent collection, utilities with auto-sync, insights and Excel exports — plus a portal for your tenants.">
+  <title>Provalta — Property Management, Simplified</title>
+  <meta name="description" content="Provalta is the all-in-one property management app for landlords and property managers: properties, tenants, card rent collection, utilities with auto-sync, insights and Excel exports — plus a portal for your tenants.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏢</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -58,7 +58,7 @@
         <span class="pill"><i class="fas fa-wand-magic-sparkles"></i>Property management, simplified</span>
         <h1>Run your rentals <span class="grad">on autopilot</span></h1>
         <p class="hero-sub">
-          EstateFlow is the all-in-one app for landlords and property managers. Add
+          Provalta is the all-in-one app for landlords and property managers. Add
           properties, assign tenants, collect rent by card, track every utility and
           see your whole portfolio in Insights — while your tenants get their own
           portal to pay and request fixes.
@@ -127,7 +127,7 @@
       <div class="section-head reveal">
         <span class="kicker">Features</span>
         <h2 class="section-title">Everything your portfolio needs, <span class="grad">in one app</span></h2>
-        <p class="section-sub">Stop juggling spreadsheets, texts and bank apps. EstateFlow keeps properties, people and money in one clean place.</p>
+        <p class="section-sub">Stop juggling spreadsheets, texts and bank apps. Provalta keeps properties, people and money in one clean place.</p>
       </div>
       <div class="features-grid">
         <div class="feature-card reveal">
@@ -212,7 +212,7 @@
         <h2 class="section-title">Your utility bills, <span class="grad">pulled for you</span></h2>
         <p class="section-sub">
           Skip the manual entry. On any plan, connect each utility to its provider once for $20 per meter per month —
-          EstateFlow takes it from there through the secure UtilityAPI service.
+          Provalta takes it from there through the secure UtilityAPI service.
         </p>
         <ul class="check-list">
           <li><i class="fas fa-circle-check"></i><span><b>Connect once, sync forever.</b> Authorize your provider through a secure, read-only UtilityAPI form.</span></li>
@@ -299,8 +299,8 @@
       </div>
       <div class="faq">
         <details class="reveal">
-          <summary>What is EstateFlow?<i class="fas fa-chevron-down"></i></summary>
-          <p>EstateFlow is an all-in-one property management app for landlords and property managers. Manage unlimited properties, assign tenants, collect rent by card, track utilities, handle maintenance and watch your whole portfolio in the Insights dashboard — with a separate portal website so your tenants can pay and submit requests themselves.</p>
+          <summary>What is Provalta?<i class="fas fa-chevron-down"></i></summary>
+          <p>Provalta is an all-in-one property management app for landlords and property managers. Manage unlimited properties, assign tenants, collect rent by card, track utilities, handle maintenance and watch your whole portfolio in the Insights dashboard — with a separate portal website so your tenants can pay and submit requests themselves.</p>
         </details>
         <details class="reveal" style="transition-delay:.05s">
           <summary>Who uses the tenant portal website?<i class="fas fa-chevron-down"></i></summary>
@@ -320,7 +320,7 @@
         </details>
         <details class="reveal" style="transition-delay:.25s">
           <summary>Is my data secure?<i class="fas fa-chevron-down"></i></summary>
-          <p>Accounts are protected by Firebase Authentication, payments are processed by Stripe (card details never touch EstateFlow), and utility provider credentials are handled entirely by UtilityAPI's secure forms — EstateFlow never sees your provider password.</p>
+          <p>Accounts are protected by Firebase Authentication, payments are processed by Stripe (card details never touch Provalta), and utility provider credentials are handled entirely by UtilityAPI's secure forms — Provalta never sees your provider password.</p>
         </details>
       </div>
     </div>
@@ -331,7 +331,7 @@
     <div class="section-inner">
       <div class="cta-band reveal">
         <h2>See your whole portfolio <span class="grad">in one place</span></h2>
-        <p>Set up your first property in minutes — and let EstateFlow handle the busywork from there.</p>
+        <p>Set up your first property in minutes — and let Provalta handle the busywork from there.</p>
         <div class="hero-actions center">
           <a class="btn btn-primary" href="#pricing">View plans<i class="fas fa-arrow-up"></i></a>
           <a class="btn btn-ghost" href="portal.html"><i class="fas fa-arrow-right-to-bracket"></i>Open Tenant Portal</a>
@@ -364,7 +364,7 @@
         <a href="portal.html">Submit a request</a>
       </div>
     </div>
-    <div class="footer-bottom">© 2026 EstateFlow · Built for landlords &amp; property managers</div>
+    <div class="footer-bottom">© 2026 Provalta · Built for landlords &amp; property managers</div>
   </footer>
 
   <!-- ═══ PLAN CHECKOUT MODAL ═══ -->
@@ -373,7 +373,7 @@
       <button class="checkout-close" onclick="closeCheckout()" aria-label="Close"><i class="fas fa-xmark"></i></button>
       <span class="pill"><i class="fas fa-bolt"></i><span id="co-plan-label">Professional</span></span>
       <h3>Start your subscription</h3>
-      <p class="co-sub">Enter the email you use (or will use) in EstateFlow. Your plan activates right after checkout — the app and tenant portal unlock automatically.</p>
+      <p class="co-sub">Enter the email you use (or will use) in Provalta. Your plan activates right after checkout — the app and tenant portal unlock automatically.</p>
       <input type="email" id="co-email" placeholder="you@example.com" autocomplete="email">
       <p class="co-error" id="co-error"></p>
       <button class="btn btn-primary co-btn" id="co-submit" onclick="submitCheckout()"><i class="fas fa-lock"></i>Continue to secure checkout</button>
@@ -475,7 +475,7 @@
       const banner = document.getElementById('checkoutBanner');
       if (state === 'success') {
         banner.className = 'checkout-banner success';
-        banner.innerHTML = '<i class="fas fa-circle-check"></i><span><b>You\'re subscribed!</b> Open the EstateFlow app and sign in with this email — your plan is already active.</span>';
+        banner.innerHTML = '<i class="fas fa-circle-check"></i><span><b>You\'re subscribed!</b> Open the Provalta app and sign in with this email — your plan is already active.</span>';
       } else {
         banner.className = 'checkout-banner cancelled';
         banner.innerHTML = '<i class="fas fa-circle-info"></i><span>Checkout cancelled — you were not charged.</span>';

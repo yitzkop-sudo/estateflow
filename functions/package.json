@@ -1,6 +1,6 @@
 {
-  "name": "estateflow-functions",
-  "description": "Cloud Functions for EstateFlow rent payments (Stripe Connect)",
+  "name": "provalta-functions",
+  "description": "Cloud Functions for Provalta rent payments (Stripe Connect)",
   "engines": {
     "node": "20"
   },

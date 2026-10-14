@@ -1,5 +1,5 @@
 /**
- * Central responsive design tokens for EstateFlow.
+ * Central responsive design tokens for Provalta.
  *
  * Breakpoints follow common device widths:
  * - phone:   < 600px  (all phones, portrait + landscape)

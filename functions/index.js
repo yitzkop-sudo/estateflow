@@ -1,5 +1,5 @@
 /**
- * EstateFlow rent payments — Stripe Connect destination charges.
+ * Provalta rent payments — Stripe Connect destination charges.
  *
  * Money flow when a tenant pays rent:
  *   tenant card → Stripe Checkout → charge on the platform account
@@ -131,7 +131,7 @@ exports.createRentCheckoutSession = onCall({ region: REGION }, async (req) => {
   if (!connect.exists || !connect.stripeAccountId) {
     throw new HttpsError(
       "failed-precondition",
-      "Your landlord hasn't connected their payout account yet. Ask them to set up payouts in the EstateFlow app."
+      "Your landlord hasn't connected their payout account yet. Ask them to set up payouts in the Provalta app."
     );
   }
   if (!connect.payoutsEnabled) {
@@ -574,7 +574,7 @@ exports.stripeWebhook = onRequest({ region: REGION }, async (req, res) => {
       const md = session.metadata || {};
       const { ownerId, tenantId, monthKey } = md;
       if (!ownerId || !tenantId || !monthKey) {
-        console.warn("checkout.session.completed without EstateFlow metadata", session.id);
+        console.warn("checkout.session.completed without Provalta metadata", session.id);
         break;
       }
 

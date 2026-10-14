@@ -38,7 +38,7 @@ export default function AiAssistant() {
   const router = useRouter();
   const [messages, setMessages] = useState<AIMessage[]>([
     makeAssistantMessage(
-      "Hi, I'm your EstateFlow assistant! Ask me anything about the app (properties, tenants, rent, utilities, maintenance, payouts, plans) or real-estate topics (leases, screening, cap rate, deposits…). How can I help?"
+      "Hi, I'm your Provalta assistant! Ask me anything about the app (properties, tenants, rent, utilities, maintenance, payouts, plans) or real-estate topics (leases, screening, cap rate, deposits…). How can I help?"
     ),
   ]);
   const [input, setInput] = useState("");

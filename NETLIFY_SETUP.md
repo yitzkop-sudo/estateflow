@@ -1,6 +1,6 @@
-# EstateFlow API on Netlify (card-free)
+# Provalta API on Netlify (card-free)
 
-EstateFlow's server-side logic **no longer runs on Firebase Cloud Functions** (which
+Provalta's server-side logic **no longer runs on Firebase Cloud Functions** (which
 require the paid Blaze plan). Instead it runs as a **Netlify Function** powered by a
 plain Express app, while **Firebase Auth + Firestore stay on the free Spark plan —
 no Blaze, no credit card.**

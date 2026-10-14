@@ -55,7 +55,7 @@ export default function Payouts() {
       return;
     }
     try {
-      await WebBrowser.openAuthSessionAsync(url, "propertymanager://payouts");
+      await WebBrowser.openAuthSessionAsync(url, "provalta://payouts");
     } catch {
       try {
         await WebBrowser.openBrowserAsync(url);

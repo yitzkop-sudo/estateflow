@@ -1,5 +1,5 @@
 /**
- * EstateFlow AI engine — cloud-first, offline fallback.
+ * Provalta AI engine — cloud-first, offline fallback.
  *
  * askAssistant() tries POST /ai-chat (server LLM when OPENAI_API_KEY or
  * GEMINI_API_KEY is configured), passing recent conversation turns so
@@ -50,10 +50,10 @@ function contextLine(ctx?: PortfolioContext): string {
 function smallTalk(query: string): string | null {
   const q = query.toLowerCase().trim();
   if (/^(hi|hello|hey|good (morning|afternoon|evening))\b/.test(q) && q.length < 30)
-    return "Hello! I'm the EstateFlow assistant. Ask me anything about using the app (properties, tenants, rent, utilities, maintenance, payouts) or about real-estate topics like leases, screening, cash flow, financing, taxes — even how to get started. What's on your mind?";
+    return "Hello! I'm the Provalta assistant. Ask me anything about using the app (properties, tenants, rent, utilities, maintenance, payouts) or about real-estate topics like leases, screening, cash flow, financing, taxes — even how to get started. What's on your mind?";
   if (q.includes("thank")) return "You're welcome! Anything else about your properties or property management I can help with?";
   if (q.includes("who are you") || q.includes("your name"))
-    return "I'm the EstateFlow assistant — your in-app guide to the app and to property management topics.";
+    return "I'm the Provalta assistant — your in-app guide to the app and to property management topics.";
   if (q.includes("what can you do") || q.includes("help me") && q.length < 25)
     return "I can answer questions about the app (adding properties, tenants, rent, utilities, maintenance, payouts, plans) and general real-estate topics (leases, screening, deposits, cap rate, financing, taxes, insurance, evictions). What would you like to know?";
   return null;
