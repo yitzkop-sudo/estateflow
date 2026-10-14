@@ -173,8 +173,8 @@ export default function AuthScreen() {
                     </View>
 
                     <Text style={styles.title}>
-                        <Text style={styles.titleMain}>Estate</Text>
-                        <Text style={styles.titleAccent}>Flow</Text>
+                        <Text style={styles.titleMain}>Prov</Text>
+                        <Text style={styles.titleAccent}>alta</Text>
                     </Text>
                     <Text style={styles.tagline}>Modern Property Management</Text>
 
